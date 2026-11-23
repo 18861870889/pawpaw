@@ -1,0 +1,136 @@
+name: Build and release
+on:
+  push:
+    branches: [main, 'release/**']
+    tags: ['v*.*.*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-2025
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the desktop app
+        shell: pwsh
+        run: .\源码\build.cmd
+      - name: Verify the build, input routing and startup
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $exe=Get-Item -LiteralPath '.\PawPaw-Windows.exe'
+          $version=$exe.VersionInfo
+          if ($version.ProductName -ne 'PawPaw') { throw 'Unexpected Windows product' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and "v$(([version]$version.FileVersion).ToString(3))" -ne $env:GITHUB_REF_NAME) { throw 'Tag and executable version differ' }
+          & ".\源码\Test-InputPrivacy.ps1"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & ".\scripts\test-window-lock.ps1"
+          $pet=Start-Process -FilePath $exe.FullName -PassThru
+          try {
+            Start-Sleep -Seconds 3
+            if ($pet.HasExited) { throw 'Desktop pet exited during startup' }
+          } finally {
+            if (!$pet.HasExited) { $pet.Kill(); $pet.WaitForExit() }
+          }
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: PawPaw-Windows
+          path: PawPaw-Windows.exe
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Generate public Mac artwork from the same drawing code
+        shell: pwsh
+        run: .\scripts\export-art.cmd "$env:RUNNER_TEMP\pawpaw-art"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: Mac-render-data
+          path: ${{ runner.temp }}/pawpaw-art/
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+  mac:
+    name: macOS · Apple silicon
+    needs: windows
+    runs-on: macos-26
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: Mac-render-data
+          path: ${{ runner.temp }}/pawpaw-art
+      - name: Build the universal app and test it
+        shell: bash
+        run: |
+          set -euo pipefail
+          app="$RUNNER_TEMP/PawPaw.app"
+          PAWPAW_ART_DIR="$RUNNER_TEMP/pawpaw-art" sh 源码/macOS/build.sh "$app"
+          version=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' "$app/Contents/Info.plist")
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then [[ "v$version" == "$GITHUB_REF_NAME" ]]; fi
+          sh scripts/test-macos.sh "$app"
+          mkdir -p dist
+          ditto -c -k --norsrc --keepParent "$app" dist/PawPaw-macOS-universal.zip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: PawPaw-macOS
+          path: dist/PawPaw-macOS-universal.zip
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 7
+
+  intel:
+    name: macOS · Intel
+    needs: mac
+    runs-on: macos-15-intel
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: PawPaw-macOS
+          path: dist
+      - name: Verify the exact ZIP built on Apple silicon
+        shell: bash
+        run: |
+          set -euo pipefail
+          ditto -x -k dist/PawPaw-macOS-universal.zip "$RUNNER_TEMP/pawpaw"
+          sh scripts/test-macos.sh "$RUNNER_TEMP/pawpaw/PawPaw.app"
+
+  release:
+    name: Publish tested downloads
+    if: startsWith(github.ref, 'refs/tags/v') && github.event_name != 'pull_request'
+    needs: [windows, mac, intel]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: PawPaw-*
+          merge-multiple: true
+          path: dist
+      - name: Publish binaries and SHA-256 checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/publish.sh

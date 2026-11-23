@@ -1,0 +1,14 @@
+/PawPaw-Windows.exe
+/PawPaw-macOS-universal.zip
+/dist/
+/KeyboardCat.exe
+/键盘猫-macOS-通用版.zip
+/源码/macOS/Resources/Artwork.json
+/源码/macOS/Resources/Artwork.bin
+/源码/macOS/Resources/.pawpaw-art.*/
+/源码/macOS/build/
+/单词彩蛋预览.gif
+/猫咪互动预览.gif
+/装扮搭配预览.png
+/桌宠MVP试用方案.md
+.DS_Store

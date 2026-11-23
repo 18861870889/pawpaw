@@ -1,0 +1,32 @@
+name: 使用问题 / Bug report
+description: 报告安装、显示、装扮或键鼠互动的问题。
+title: "[问题] "
+body:
+  - type: input
+    id: version
+    attributes:
+      label: 爪爪版本 / App version
+      description: 可在「帮助与反馈 → 使用说明」里查看。
+      placeholder: "1.9.0"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: 系统和设备 / Platform
+      placeholder: "Windows 11 或 macOS 15（Intel / Apple 芯片）"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 如何复现 / Steps
+      description: 请用示例词 fish 描述操作，省去真实聊天内容。
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: 实际与预期表现 / Actual and expected behavior
+    validations:
+      required: true
