@@ -70,9 +70,16 @@ namespace KeyboardCat
             uint read=GetRawInputData(handle,0x10000003,out packet,ref size,rawHeaderSize);
             return read!=uint.MaxValue && read>=rawHeaderSize+16 && (packet.Header.Type==0 || packet.Header.Type==1);
         }
+        [DllImport("user32.dll")] static extern uint MapVirtualKeyW(uint code,uint map);
         public static int KeyCode(RawPayload data)
         {
             bool extended=(data.KeyFlags&2)!=0;
+            // Some IMEs report VK_PROCESSKEY in place of the hardware key on either edge.
+            if((data.VKey==0xe5 || data.VKey==0) && data.MakeCode>0 && data.MakeCode<0x80) {
+                uint scan=(uint)data.MakeCode | (extended?0xe000u:0u);
+                int key=(int)MapVirtualKeyW(scan,3);
+                if(key!=0) return key;
+            }
             if(data.VKey==0x10) return data.MakeCode==0x36?0xa1:0xa0;
             if(data.VKey==0x11) return extended?0xa3:0xa2;
             if(data.VKey==0x12) return extended?0xa5:0xa4;

@@ -81,6 +81,14 @@ int main(void) {
     kc_privacy(&m,false,78);kc_idle(&m,78,0,false,false);kc_idle(&m,91,13,false,false);assert(m.trick<0);
     kc_init(&m,words,durations);kc_idle(&m,0,0,true,true);kc_idle(&m,12,12,true,true);assert(m.trick==KC_WORDS+1);
     kc_mouse(&m,0,true,12.2);assert(m.trick<0);
+    KCConfirmation check={0};kc_confirm_begin(&check,1);
+    unsigned current=check.ticket;
+    assert(!kc_confirm_due(&check,1.01) && kc_confirm_due(&check,1.06) && !kc_confirm_start(&check));
+    assert(!kc_confirm_due(&check,1.10) && kc_confirm_due(&check,1.21) && !kc_confirm_start(&check));
+    assert(kc_confirm_due(&check,1.48) && !kc_confirm_start(&check) && kc_confirm_current(&check,current,1.5));
+    assert(kc_confirm_due(&check,1.8) && kc_confirm_start(&check));
+    kc_confirm_cancel(&check);assert(!kc_confirm_current(&check,current,1.81) && !kc_confirm_due(&check,2));
+    kc_confirm_begin(&check,2.1);assert(!kc_confirm_due(&check,4.5));
     kc_reset(&m);kc_chinese_match(&m,17,1);assert(m.trick==8 && m.wordBubble==KC_ALIASES+17);
     kc_privacy(&m,true,2);kc_chinese_match(&m,4,2.1);assert(m.trick<0 && m.wordBubble<0);
     kc_privacy(&m,false,3);m.wordsEnabled=false;kc_chinese_match(&m,4,3);assert(m.trick<0);

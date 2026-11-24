@@ -25,6 +25,9 @@ int main(int argc,const char **argv) {
             assert(hit>=0 && hit/2==i);
         }
         assert([art.chinese matchSuffix:@"在下小雨"]==-1);
+        assert([[art.chinese wordForMatch:[art.chinese matchSuffix:@"你好 "]] isEqual:@"你好"]);
+        assert([[art.chinese wordForMatch:[art.chinese matchSuffix:@"小魚　"]] isEqual:@"小魚"]);
+        assert([art.chinese matchSuffix:@"你好  "]==-1);
         assert([[art.chinese wordForMatch:[art.chinese matchSuffix:@"敬自己一杯。"]] isEqual:@"敬自己一杯"]);
         [art.chinese clear];
         int expected=-1;

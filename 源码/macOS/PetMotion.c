@@ -2,6 +2,20 @@
 #include <math.h>
 #include <string.h>
 
+static const double confirmDelays[]={.04,.17,.40,.75};
+static const unsigned confirmAttempts=sizeof(confirmDelays)/sizeof(confirmDelays[0]);
+void kc_confirm_cancel(KCConfirmation *c) {c->ticket++;c->pending=false;c->attempt=0;}
+void kc_confirm_begin(KCConfirmation *c,double t) {kc_confirm_cancel(c);c->began=t;c->pending=true;}
+bool kc_confirm_current(const KCConfirmation *c,unsigned ticket,double t) {
+    return c->pending && c->ticket==ticket && t-c->began<=2.;
+}
+bool kc_confirm_due(KCConfirmation *c,double t) {
+    if(!c->pending) return false;
+    if(!kc_confirm_current(c,c->ticket,t) || c->attempt>=confirmAttempts) {kc_confirm_cancel(c);return false;}
+    return t-c->began>=confirmDelays[c->attempt];
+}
+bool kc_confirm_start(KCConfirmation *c) {return ++c->attempt==confirmAttempts;}
+
 double kc_smooth(double x) { x=fmax(0,fmin(1,x)); return x*x*(3-2*x); }
 void kc_break(KCMotion *m) { memset(m->matched,0,sizeof(m->matched)); m->lastLetter=-1e9; }
 void kc_clear_bubbles(KCMotion *m) { m->bubbleCount=0; m->wordBubble=-1; }

@@ -41,6 +41,7 @@ namespace KeyboardCat
         double last;
         bool hasLetters;
         ChineseWord complete;
+        public bool HasKnownSpelling {get {return complete!=null;}}
         public void Clear() {prefix="";complete=null;hasLetters=false;}
         public bool Letter(int key,double now) {
             if(now-last>8) Clear();
@@ -60,6 +61,7 @@ namespace KeyboardCat
             prefix=next;
             return complete!=null;
         }
+        public void Untranslated(double now) {Clear();hasLetters=true;last=now;}
         public void Edit(double now) {
             bool recent=hasLetters && now-last<=8;
             Clear();hasLetters=recent;last=now;
@@ -73,6 +75,26 @@ namespace KeyboardCat
             hasLetters=false;last=now;
             return true;
         }
+    }
+
+    // IMEs and accessibility providers can commit on different turns of the message loop.
+    internal sealed class ChineseConfirmation
+    {
+        static readonly double[] delays={.04,.17,.40,.75};
+        int attempt;
+        double started=double.NegativeInfinity;
+        public int Ticket {get; private set;}
+        public ChineseWord Expected {get; private set;}
+        public bool LastAttempt {get {return attempt==delays.Length;}}
+        public void Cancel() {Ticket++;Expected=null;started=double.NegativeInfinity;attempt=0;}
+        public void Begin(ChineseWord expected,double now) {Cancel();Expected=expected;started=now;}
+        public bool Current(int ticket,double now) {return ticket==Ticket && now-started<=2.0;}
+        public bool Due(double now) {
+            if(double.IsNegativeInfinity(started)) return false;
+            if(now-started>2.0 || LastAttempt) {Cancel();return false;}
+            return now-started>=delays[attempt];
+        }
+        public void StartAttempt() {attempt++;}
     }
 
     internal static class ChineseInput
@@ -96,57 +118,91 @@ namespace KeyboardCat
             } catch(ArgumentException) {} catch(InvalidOperationException) {} catch(System.ComponentModel.Win32Exception) {}
             return false;
         }
-        public static bool IsChinese(IntPtr window) {
+        public static bool IsChinese(IntPtr window,IntPtr child) {
             uint pid;
-            uint thread=GetWindowThreadProcessId(window,out pid);
+            uint thread=GetWindowThreadProcessId(child!=IntPtr.Zero?child:window,out pid);
             return thread!=0 && (GetKeyboardLayout(thread).ToInt64()&0x3ff)==4;
         }
-        // The provider compares only catalog entries in a short range ending at the caret.
-        // No control value, selected text or chat history is requested.
-        public static string AtCaret(IntPtr window,IntPtr child,ChineseWord fallback) {
+        public static string AtCaret(IntPtr window,IntPtr child,ChineseWord expected,bool allowSpelling,bool chatRoot) {
             if(window==IntPtr.Zero || Native.GetForegroundWindow()!=window || PasswordFocus.FocusedChild(window)!=child) return null;
-            try { return MatchField(AutomationElement.FocusedElement,fallback); }
+            try {
+                AutomationElement field=AutomationElement.FocusedElement;
+                if(!chatRoot) return ReadField(field,expected,allowSpelling);
+                // This validated native WeChat window exposes no editor. Its document may be the conversation.
+                if(field==null || child!=window || field.Current.NativeWindowHandle!=unchecked((int)window.ToInt64()) ||
+                   !Object.Equals(field.Current.ControlType,ControlType.Window)) return null;
+                object password=field.GetCurrentPropertyValue(AutomationElement.IsPasswordProperty,true);
+                return allowSpelling && expected!=null && !Object.Equals(password,true)?expected.Simplified:null;
+            }
             catch(ElementNotAvailableException) {return null;}
             catch(COMException) {return null;}
             catch(UnauthorizedAccessException) {return null;}
             catch(InvalidOperationException) {return null;}
+            catch(TimeoutException) {return null;}
+            catch(NotSupportedException) {return null;}
+        }
+        internal static string MatchField(AutomationElement field,ChineseWord fallback) {
+            return ReadField(field,fallback,true);
         }
 
-        internal static string MatchField(AutomationElement field,ChineseWord fallback) {
+        // FindText asks the provider about fixed strings only. Text outside that vocabulary never leaves the field.
+        static string ReadField(AutomationElement field,ChineseWord expected,bool allowSpelling) {
+            if(field==null) return null;
+            string phonetic=null;
             try {
-                if(field==null) return null;
                 object password=field.GetCurrentPropertyValue(AutomationElement.IsPasswordProperty,true);
                 if(password is bool && (bool)password) return null;
-                string phonetic=fallback==null?null:fallback.Simplified;
+                phonetic=allowSpelling && expected!=null?expected.Simplified:null;
                 object raw;
                 if(!(password is bool) || !field.TryGetCurrentPattern(TextPattern.Pattern,out raw)) return phonetic;
-                TextPatternRange[] selected=((TextPattern)raw).GetSelection();
-                if(selected==null || selected.Length!=1) return null;
+                TextPattern pattern=(TextPattern)raw;
+                TextPatternRange[] selected=pattern.GetSelection();
+                if(selected==null || selected.Length==0) return phonetic;
+                if(selected.Length!=1) return null;
                 TextPatternRange range=selected[0];
                 if(range.CompareEndpoints(TextPatternRangeEndpoint.Start,range,TextPatternRangeEndpoint.End)!=0) return null;
+                TextPatternRange document=pattern.DocumentRange;
+                if(range.CompareEndpoints(TextPatternRangeEndpoint.End,document,TextPatternRangeEndpoint.Start)<0) return null;
+                if(range.CompareEndpoints(TextPatternRangeEndpoint.End,document,TextPatternRangeEndpoint.End)>0) {
+                    // Chromium can place the DOM caret just outside the last text node in a contenteditable.
+                    TextPatternRange previous=range.Clone();
+                    if(previous.MoveEndpointByUnit(TextPatternRangeEndpoint.Start,TextUnit.Character,-1)!=-1 ||
+                       previous.CompareEndpoints(TextPatternRangeEndpoint.Start,document,TextPatternRangeEndpoint.End)>=0) return null;
+                    range.MoveEndpointByRange(TextPatternRangeEndpoint.End,document,TextPatternRangeEndpoint.End);
+                    range.MoveEndpointByRange(TextPatternRangeEndpoint.Start,document,TextPatternRangeEndpoint.End);
+                }
                 int length=0;
                 foreach(ChineseWord word in ChineseWord.All) length=Math.Max(length,Math.Max(word.Simplified.Length,word.Traditional.Length));
-                range.MoveEndpointByUnit(TextPatternRangeEndpoint.Start,TextUnit.Character,-1);
-                // Chinese punctuation can accept a candidate and land after it in the same edit.
-                foreach(char mark in "，。！？、；：,.!?;:") {
-                    if(!EndsIn(range,mark.ToString())) continue;
-                    range.MoveEndpointByUnit(TextPatternRangeEndpoint.End,TextUnit.Character,-1);
-                    break;
-                }
-                range.MoveEndpointByRange(TextPatternRangeEndpoint.Start,range,TextPatternRangeEndpoint.End);
-                range.MoveEndpointByUnit(TextPatternRangeEndpoint.Start,TextUnit.Character,-length);
+                range.MoveEndpointByUnit(TextPatternRangeEndpoint.Start,TextUnit.Character,-length-1);
+                if(range.CompareEndpoints(TextPatternRangeEndpoint.Start,document,TextPatternRangeEndpoint.Start)<0)
+                    range.MoveEndpointByRange(TextPatternRangeEndpoint.Start,document,TextPatternRangeEndpoint.Start);
+                string hit=FindWord(range,expected);
+                if(hit!=null) return hit;
                 foreach(ChineseWord word in ChineseWord.All) {
-                    if(EndsIn(range,word.Simplified)) return word.Simplified;
-                    if(word.Traditional!=word.Simplified && EndsIn(range,word.Traditional)) return word.Traditional;
+                    if(word==expected) continue;
+                    hit=FindWord(range,word);
+                    if(hit!=null) return hit;
                 }
             } catch(ElementNotAvailableException) {} catch(InvalidOperationException) {} catch(COMException) {}
-              catch(UnauthorizedAccessException) {} catch(NotSupportedException) {} catch(ArgumentException) {}
+              catch(UnauthorizedAccessException) {} catch(NotSupportedException) {return phonetic;} catch(ArgumentException) {}
               catch(TimeoutException) {}
             return null;
         }
-        static bool EndsIn(TextPatternRange range,string word) {
-            TextPatternRange hit=range.FindText(word,true,false);
-            return hit!=null && hit.CompareEndpoints(TextPatternRangeEndpoint.End,range,TextPatternRangeEndpoint.End)==0;
+        static string FindWord(TextPatternRange range,ChineseWord rule) {
+            if(rule==null) return null;
+            if(AtEnd(range,rule.Simplified)) return rule.Simplified;
+            return rule.Simplified!=rule.Traditional && AtEnd(range,rule.Traditional)?rule.Traditional:null;
+        }
+        static bool AtEnd(TextPatternRange range,string word) {
+            TextPatternRange match=range.FindText(word,true,false);
+            if(match==null) return false;
+            if(match.CompareEndpoints(TextPatternRangeEndpoint.End,range,TextPatternRangeEndpoint.End)==0) return true;
+            match.MoveEndpointByRange(TextPatternRangeEndpoint.Start,match,TextPatternRangeEndpoint.End);
+            if(match.MoveEndpointByUnit(TextPatternRangeEndpoint.End,TextUnit.Character,1)!=1 ||
+               match.CompareEndpoints(TextPatternRangeEndpoint.End,range,TextPatternRangeEndpoint.End)!=0) return false;
+            foreach(char mark in " 　，。！？、；：,.!?;:\u200b")
+                if(match.FindText(mark.ToString(),false,false)!=null) return true;
+            return false;
         }
     }
 }

@@ -85,6 +85,13 @@ try {
         }
         Assert-True ($motion.MatchedWord.Label -eq $alias.ToLowerInvariant() -and $motion.Tricks.Current($time).Kind.ToString() -eq 'Basketball') 'Both basketball aliases must trigger their own dance in chat'
     }
+    $decode=$assembly.GetType('KeyboardCat.Native').GetMethod('KeyCode')
+    foreach($fixture in @(@(0x31,78),@(0x39,32),@(0x02,49))) {
+        $raw=[Activator]::CreateInstance($dataType)
+        $dataType.GetField('VKey').SetValue($raw,[uint16]0xe5)
+        $dataType.GetField('MakeCode').SetValue($raw,[uint16]$fixture[0])
+        Assert-True ($decode.Invoke($null,[object[]]@($raw.PSObject.BaseObject)) -eq $fixture[1]) 'IME process keys must preserve the underlying letter or candidate key'
+    }
     $sequenceType=$assembly.GetType('KeyboardCat.ChineseSequence')
     $sequence=[Activator]::CreateInstance($sequenceType,$true)
     $time=0.0

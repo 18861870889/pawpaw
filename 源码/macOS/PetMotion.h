@@ -6,6 +6,13 @@
 enum { KC_WORDS=9, KC_ALIASES=KC_WORDS*2, KC_IDLE_COUNT=3, KC_ACTIONS=KC_WORDS+KC_IDLE_COUNT };
 #define KC_WORD_BUBBLE_SECONDS 1.55
 
+typedef struct { unsigned ticket,attempt; double began; bool pending; } KCConfirmation;
+void kc_confirm_cancel(KCConfirmation *c);
+void kc_confirm_begin(KCConfirmation *c,double time);
+bool kc_confirm_due(KCConfirmation *c,double time);
+bool kc_confirm_current(const KCConfirmation *c,unsigned ticket,double time);
+bool kc_confirm_start(KCConfirmation *c);
+
 typedef struct { int cap,hardware; double start,released; } KCPaw;
 typedef struct { int hardware,cap,lane; double start; } KCBubble;
 typedef struct {

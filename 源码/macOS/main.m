@@ -111,8 +111,10 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     CFRunLoopSourceRef _source;
     NSPoint _priorMouse;
     double _previousTick,_lastRender,_nextPermissionCheck,_lastInput;
-    int _size,_menuDepth,_chineseTicket,_expectedChinese;
-    double _checkChineseAt;
+    int _size,_menuDepth,_expectedChinese;
+    KCConfirmation _confirmation;
+    pid_t _candidatePID;
+    NSString *_inputSourceID;
     BOOL _chineseSource,_checkingChinese;
     BOOL _paused,_allowed,_updateMenuAfterTracking;
 }
@@ -248,44 +250,52 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     kc_privacy(&_motion,secure,t);
 }
 - (void)clearChinese {
-    [self.art.chinese clear]; _chineseTicket++; _checkChineseAt=INFINITY;
+    [self.art.chinese clear];kc_confirm_cancel(&_confirmation);
 }
 - (void)inputSourceChanged:(NSNotification *)note {
-    _chineseSource=NO;
+    BOOL chinese=NO;
+    NSString *sourceID=nil;
     TISInputSourceRef source=TISCopyCurrentKeyboardInputSource();
     if(source) {
+        sourceID=[(__bridge NSString *)TISGetInputSourceProperty(source,kTISPropertyInputSourceID) copy];
         NSArray *languages=(__bridge NSArray *)TISGetInputSourceProperty(source,kTISPropertyInputSourceLanguages);
         for(NSString *language in languages) {
-            if([language isEqualToString:@"zh"] || [language hasPrefix:@"zh-"] || [language hasPrefix:@"zh_"]) {_chineseSource=YES;break;}
+            if([language isEqualToString:@"zh"] || [language hasPrefix:@"zh-"] || [language hasPrefix:@"zh_"]) {chinese=YES;break;}
         }
         CFRelease(source);
     }
+    if(_chineseSource==chinese && [_inputSourceID isEqual:sourceID]) return;
+    _chineseSource=chinese;_inputSourceID=sourceID;
     [self clearChinese];kc_break(&_motion);
 }
 - (void)scheduleChinese:(int)expected time:(double)t {
-    _expectedChinese=expected; _checkChineseAt=t+.075; _chineseTicket++;
+    _expectedChinese=expected;
+    _candidatePID=NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
+    kc_confirm_begin(&_confirmation,t);
 }
 - (void)checkChinese:(double)t {
-    _checkChineseAt=INFINITY;
-    if(!_chineseSource || !_motion.wordsEnabled || _motion.privateInput || _motion.gameActive) return;
-    int ticket=_chineseTicket, expected=_expectedChinese;
-    pid_t pid=NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
+    pid_t pid=_candidatePID;
+    if(!_chineseSource || !_motion.wordsEnabled || _motion.privateInput || _motion.gameActive ||
+       pid<=0 || NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier!=pid) {[self clearChinese];return;}
+    unsigned ticket=_confirmation.ticket;
+    BOOL finalAttempt=kc_confirm_start(&_confirmation);
+    int expected=finalAttempt || !AXIsProcessTrusted()?_expectedChinese:-1;
     ChineseInput *words=self.art.chinese;
     _checkingChinese=YES;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
         int match=[words atCaretOf:pid fallback:expected];
         dispatch_async(dispatch_get_main_queue(),^{
             self->_checkingChinese=NO;
-            if(match<0 || ticket!=self->_chineseTicket || !self->_chineseSource || self->_paused || self->_menuDepth ||
-               Now()-t>1.5 || self->_view.dragging || (NSApp.active && NSApp.keyWindow) || NSApp.modalWindow ||
+            if(match<0 || !kc_confirm_current(&self->_confirmation,ticket,Now()) || !self->_chineseSource || self->_paused || self->_menuDepth ||
+               self->_view.dragging || (NSApp.active && NSApp.keyWindow) || NSApp.modalWindow ||
                NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier!=pid || IsSecureEventInputEnabled()) return;
-            kc_chinese_match(&self->_motion,match,Now());
+            kc_confirm_cancel(&self->_confirmation);kc_chinese_match(&self->_motion,match,Now());
         });
     });
 }
 - (void)breakInput {[self clearChinese];kc_clear_input(&_motion);_priorMouse=NSEvent.mouseLocation;}
 - (void)focusChanged:(NSNotification *)n {
-    [self breakInput];
+    [self breakInput];[self inputSourceChanged:nil];
     NSRunningApplication *front=NSWorkspace.sharedWorkspace.frontmostApplication;
     _motion.gameActive=[front.bundleIdentifier.lowercaseString isEqualToString:@"com.valvesoftware.dota2"] ||
         [front.executableURL.lastPathComponent.lowercaseString isEqualToString:@"dota2"];
@@ -345,7 +355,7 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
             BOOL han=NO;
             for(UniCharCount i=0;i<MIN(count,64);i++) if(chars[i]>=0x3400 && chars[i]<=0x9fff) {han=YES;break;}
             if(han && !_motion.gameActive) {
-                _chineseTicket++;_checkChineseAt=INFINITY;[self.art.chinese discardSpelling];
+                kc_confirm_cancel(&_confirmation);[self.art.chinese discardSpelling];
                 for(UniCharCount i=0;i<MIN(count,64);i++)
                     kc_chinese_match(&_motion,[self.art.chinese committedCharacter:chars[i] time:t],t);
                 letter=0;
@@ -359,7 +369,7 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
                     int expected=-1;
                     if([self.art.chinese selectAt:t expected:&expected]) [self scheduleChinese:(hw==36 || hw==76 || punctuation?-1:expected) time:t];
                 } else if(hw==51) {
-                    _chineseTicket++;_checkChineseAt=INFINITY;[self.art.chinese editAt:t];
+                    kc_confirm_cancel(&_confirmation);[self.art.chinese editAt:t];
                 } else if(hw!=39) [self clearChinese];
             }
         }
@@ -373,8 +383,9 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
             pid_t target=(pid_t)CGEventGetIntegerValueField(e,kCGEventTargetUnixProcessID);
             NSString *bundle=(target>0 && _chineseSource)?[NSRunningApplication runningApplicationWithProcessIdentifier:target].bundleIdentifier.lowercaseString:nil;
             BOOL candidate=bundle && ([bundle containsString:@".inputmethod."] || [bundle containsString:@"imklaunchagent"]);
-            if(type==kCGEventLeftMouseDown && candidate && [self.art.chinese selectAt:t expected:&ignored])
-                [self scheduleChinese:-1 time:t];
+            if(type==kCGEventLeftMouseDown && _chineseSource && [self.art.chinese selectAt:t expected:&ignored] &&
+               (candidate || ignored>=0))
+                [self scheduleChinese:(candidate?ignored:-1) time:t];
             else [self clearChinese];
         }
         kc_mouse(&_motion,(int)CGEventGetIntegerValueField(e,kCGMouseEventButtonNumber),pressed,t);
@@ -391,7 +402,7 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     BOOL follow=!_paused && !_view.dragging && !_menuDepth && !(NSApp.active && NSApp.keyWindow) && !NSApp.modalWindow;
     [self privacy:(!_paused && IsSecureEventInputEnabled()) time:t];
     follow=follow && !_motion.privateInput;
-    if(follow && !_checkingChinese && t>=_checkChineseAt) [self checkChinese:t];
+    if(follow && !_checkingChinese && kc_confirm_due(&_confirmation,t)) [self checkChinese:t];
     if(follow && !NSEqualPoints(global,_priorMouse)) {kc_interrupt_idle(&_motion,t);_motion.lastMove=t;}
     _priorMouse=global;
     kc_step(&_motion,t,dt,x-151,y-([_studio.role[@"shape"] intValue]?90:115),follow);

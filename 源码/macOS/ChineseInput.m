@@ -61,7 +61,7 @@
     _hasLetters=NO;_last=t;return YES;
 }
 - (int)matchSuffix:(NSString *)text {
-    static NSString *const punctuation=@"，。！？、；：,.!?;:";
+    static NSString *const punctuation=@" 　，。！？、；：,.!?;:\u200b";
     if(text.length && [punctuation rangeOfString:[text substringFromIndex:text.length-1]].location!=NSNotFound)
         text=[text substringToIndex:text.length-1];
     for(NSUInteger i=0;i<_rules.count;i++) {
