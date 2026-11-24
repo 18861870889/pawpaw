@@ -164,7 +164,7 @@ namespace KeyboardCat
         static readonly TorsoProfile[] profiles={new TorsoProfile(Cat.All[0]),new TorsoProfile(Cat.All[1])};
 
         // u runs from the left seam (-1) to the right seam (+1); v runs from the back neck (0) to the hem (1).
-        struct GarmentFit
+        partial struct GarmentFit
         {
             public readonly Garment Kind;
             readonly Cat cat;

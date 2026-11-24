@@ -13,7 +13,9 @@ namespace KeyboardCat
             public float LeftTurn, RightTurn, LeftPads, RightPads;
             public float EarLeft,EarRight,TailTurn,Still,Focus,GazeX,GazeY;
             public int FrontHand;
-            public PointF Prop,FrontOffset;
+            public PointF Prop;
+            public float Wide, Tall, Air, Legs, LeftStep, RightStep, PalmLeft, PalmRight, CupAngle;
+            public PointF Spoon, SpoonGrip;
 
             public static TrickPose Sample(TrickPlayer player,Cat cat,double now,float breath,ref PointF left,ref PointF right)
             {
@@ -30,45 +32,48 @@ namespace KeyboardCat
                 int side=cat.Longhair?-1:1;
                 PointF l=new PointF(132,169+breath), r=new PointF(176,171+breath);
                 float beat;
-                switch ((trick.SharedPose??trick).Kind)
+                switch (p.Kind)
                 {
                     case TrickKind.Wave:
-                        beat=(float)Math.Sin(sec*(cat.Longhair?8.8:11.1));
-                        if (cat.Longhair) { l=new PointF(124,193); p.LeftTurn=(102+19*beat)*w; p.LeftPads=w; }
-                        else { r=new PointF(180,193); p.RightTurn=-(102+19*beat)*w; p.RightPads=w; }
-                        p.HeadTurn=-side*(4.8f+1.7f*beat)*w;
-                        p.HeadX=-side*2*w; p.Tail=beat*3*w; p.EarLeft=-.4f; p.EarRight=.35f*beat;
+                        float greeting=Ease(sec,.12f,.48f)*(1-Ease(sec,1.63f,2.06f));
+                        beat=Accent(sec,.74f,.18f,.21f)+Accent(sec,1.35f,.20f,.23f);
+                        if(cat.Longhair) {l=new PointF(123,191);p.LeftTurn=(81+42*beat)*w*greeting;p.LeftPads=greeting*w;}
+                        else {r=new PointF(181,191);p.RightTurn=-(81+42*beat)*w*greeting;p.RightPads=greeting*w;}
+                        float bow=Accent(sec,1.80f,.25f,.31f);
+                        p.BodyX=-side*5*greeting*w;p.HeadY=(6*bow+(cat.Longhair?4:-2)*greeting)*w;
+                        p.HeadTurn=-side*(5*greeting+3*beat)*w;p.Squint=.48f*bow*w;
+                        p.EarLeft=-.55f*greeting;p.EarRight=.48f*beat;p.TailTurn=side*8*beat*w;
                         break;
                     case TrickKind.Love:
-                        beat=(float)Math.Cos(sec*7.2);
-                        l=new PointF(122,171); r=new PointF(181,171);
-                        p.LeftTurn=-(26+2*beat)*w; p.RightTurn=(27+2*beat)*w;
-                        p.HeadTurn=side*3.5f*w; p.HeadY=-2*w; p.Squint=w; p.Beat=beat; p.EarLeft=p.EarRight=-.2f; p.TailTurn=-5*w;
+                        float gather=Ease(sec,.16f,.78f)*(1-Ease(sec,1.91f,2.35f));
+                        beat=Accent(sec,1.05f,.14f,.24f)+.8f*Accent(sec,1.59f,.14f,.23f);
+                        l=new PointF(112+10*gather,170);r=new PointF(193-12*gather,170);
+                        p.LeftTurn=-(6+21*gather+4*beat)*w;p.RightTurn=(6+22*gather+4*beat)*w;
+                        p.HeadTurn=side*(1.5f+5*gather)*w;p.HeadY=(5*gather-3*beat)*w;
+                        p.BodyY=-3*beat*w;p.Wide=.025f*beat*w;p.Squint=(.75f*gather+.24f*beat)*w;
+                        p.Beat=beat;p.EarLeft=-.35f*beat;p.EarRight=-.25f*gather;p.TailTurn=-11*gather*w;
                         break;
                     case TrickKind.Fish:
-                        beat=(float)(.5-.5*Math.Cos(sec*(cat.Longhair?8.4:9.4)));
-                        l=new PointF(117,156); r=new PointF(190,159);
-                        p.LeftTurn=-(29+5*beat)*w; p.RightTurn=(32+6*beat)*w;
-                        p.HeadY=(3+13*beat)*w; p.HeadTurn=side*(2.5f-1.5f*beat)*w;
-                        p.Squint=(.06f+.94f*Motion.Smooth((beat-.28f)/.54f))*w; p.Beat=beat;
+                        beat=Accent(sec,.87f,.26f,.24f)+Accent(sec,1.68f,.29f,.23f);
+                        l=new PointF(117,156);r=new PointF(190,159);
+                        p.LeftTurn=-(27+7*beat)*w;p.RightTurn=(30+8*beat)*w;
+                        p.HeadY=(2+15*beat)*w;p.HeadX=side*3*beat*w;p.HeadTurn=side*(4-5*beat)*w;
+                        p.Squint=.92f*beat*w;p.Beat=beat;p.Focus=.73f*w;p.GazeY=.76f;
+                        p.TailTurn=side*(8*beat-3)*w;p.EarLeft=.44f*beat;p.EarRight=-.33f*beat;
                         break;
                     case TrickKind.Sleep:
-                        beat=(float)Math.Sin(sec*3.1);
-                        l=new PointF(125,164); r=new PointF(182,164);
-                        p.LeftTurn=-23*w; p.RightTurn=27*w;
-                        p.BodyY=(1.4f+.55f*beat)*w; p.HeadY=(8.5f+1.2f*beat)*w;
-                        p.HeadX=side*3.8f*w; p.HeadTurn=side*11*w; p.Squint=w;
-                        p.Tail=-2.4f*beat*w; p.EarLeft=.58f; p.EarRight=.40f; p.TailTurn=8*w;
+                        float settle=Ease(sec,.34f,1.55f),nod=Accent(sec,.61f,.36f,.21f)+.68f*Accent(sec,1.15f,.28f,.22f);
+                        beat=(float)Math.Sin(sec*2.8f);
+                        l=new PointF(125,164);r=new PointF(182,164);
+                        p.LeftTurn=-23*w;p.RightTurn=27*w;
+                        p.BodyY=(2*settle+.75f*beat)*w;p.HeadY=(9*settle+6*nod+.9f*beat)*w;
+                        p.HeadX=side*5*settle*w;p.HeadTurn=side*(13*settle+4*nod)*w;p.Squint=Math.Min(1,settle+.8f*nod)*w;
+                        p.Tail=-2.4f*beat*w;p.EarLeft=.76f*settle;p.EarRight=.51f*settle;p.TailTurn=13*settle*w;
                         break;
-                    case TrickKind.Dance:
-                        beat=(float)Math.Sin(sec*(cat.Longhair?8.0:9.1));
-                        l=new PointF(130,169-9*Math.Max(0,beat)); r=new PointF(178,170+9*Math.Min(0,beat));
-                        p.LeftTurn=(5+beat*34)*w; p.RightTurn=(-5+beat*34)*w;
-                        p.BodyX=beat*3.1f*w; p.BodyTurn=beat*(cat.Longhair?3.1f:4.2f)*w;
-                        p.BodyY=-(cat.Longhair?3.4f:6.5f)*beat*beat*w;
-                        p.HeadTurn=-beat*3*w; p.Squint=.22f*beat*beat*w; p.Tail=beat*7*w;
-                        p.EarLeft=.5f*beat; p.EarRight=-p.EarLeft; p.TailTurn=beat*9*w;
-                        break;
+                    case TrickKind.Dance: p.StepTouch(ref l,ref r);break;
+                    case TrickKind.SweetCone: p.ConeDance(cat,ref l,ref r);break;
+                    case TrickKind.RiceBowl: p.Dinner(cat,ref l,ref r);break;
+                    case TrickKind.TripleTap: p.ScreenJump(cat,ref l,ref r);break;
                     default:
                         p.CompanionAction(cat,breath,ref l,ref r);break;
                 }
@@ -78,9 +83,10 @@ namespace KeyboardCat
 
             public void MoveBody(Graphics g)
             {
-                if (BodyTurn==0 && BodyX==0 && BodyY==0) return;
+                if (BodyTurn==0 && BodyX==0 && BodyY==0 && Wide==0 && Tall==0) return;
                 g.TranslateTransform(Cat.SeatX+BodyX,Cat.SeatY+BodyY);
                 g.RotateTransform(BodyTurn);
+                g.ScaleTransform(1+Wide,1+Tall);
                 g.TranslateTransform(-Cat.SeatX,-Cat.SeatY);
             }
 
@@ -196,7 +202,7 @@ namespace KeyboardCat
                     for (int i=0;i<3;i++)
                     {
                         float u=(p.Seconds*1.12f+i*.31f)%1;
-                        Color crumb=Faded(C(0xce9054),p.Weight*(float)Math.Sin(Math.PI*u)*.86f);
+                        Color crumb=Faded(C(0xce9054),p.Weight*p.Beat*(float)Math.Sin(Math.PI*u)*.95f);
                         Oval(g,crumb,168+u*12,143-8*(float)Math.Sin(Math.PI*u)+7*u,2.2f-i*.30f,2.0f-i*.22f);
                     }
                     break;

@@ -14,7 +14,7 @@ namespace KeyboardCat
 {
     internal sealed partial class Painter
     {
-        const int Retina=2, ReachSteps=6, ClipFps=15;
+        const int Retina=2, ReachSteps=6, ClipFps=24;
         sealed class Atlas : IDisposable
         {
             public readonly Dictionary<string,int[]> Sprites=new Dictionary<string,int[]>();
@@ -79,8 +79,8 @@ namespace KeyboardCat
                 var catalog=new { roles=Cat.All.Select(c=>new {id=c.Id,name=c.Name,shape=c.ShapeIndex,pattern=c.Pattern,eyes=c.Eyes}).ToArray(),
                     shapes=Cat.Shapes,patterns=Cat.Patterns,eyes=Cat.EyeNames,clothes=Outfit.Garments.Select(Outfit.Name).ToArray(),
                     hats=Outfit.Hats.Select(Outfit.Name).ToArray(),boards=BoardNames,mice=MouseNames };
-                var manifest=new { version=7,catalog=catalog,scale=Retina,steps=ReachSteps,fps=ClipFps,sprites=Sprites,clips=Clips,keys=Keys,keymap=Map,
-                    tricks=WordTrick.All.Select(x=>new object[]{x.Word,x.Pinyin,x.Label,x.Duration,x.ShortLabel,x.SharedPose==null?null:x.SharedPose.Word}).ToArray(),
+                var manifest=new { version=8,catalog=catalog,scale=Retina,steps=ReachSteps,fps=ClipFps,sprites=Sprites,clips=Clips,keys=Keys,keymap=Map,
+                    tricks=WordTrick.All.Select(x=>new object[]{x.Word,x.Pinyin,x.Label,x.Duration,x.ShortLabel}).ToArray(),
                     idles=WordTrick.Idle.Select(x=>new object[]{x.Word,x.Duration}).ToArray() };
                 JavaScriptSerializer json=new JavaScriptSerializer { MaxJsonLength=int.MaxValue };
                 File.WriteAllText(Path.Combine(folder,"Artwork.json"),json.Serialize(manifest),new UTF8Encoding(false));
@@ -220,6 +220,22 @@ namespace KeyboardCat
                 }
             }
         }
+        partial struct GarmentFit
+        {
+            // The torso moves less than the wrists. Share fits within half a design pixel per shoulder axis.
+            public GarmentFit AtlasTorso(out int key,out float rasterBreath)
+            {
+                int lx=(int)Math.Round(leftPull.X),rx=(int)Math.Round(rightPull.X);
+                int ly=(int)Math.Round(leftPull.Y),ry=(int)Math.Round(rightPull.Y);
+                int breathing=(int)Math.Round(breath*2);
+                rasterBreath=breathing*.5f;
+                key=((((lx+4)*9+rx+4)*4+ly+1)*4+ry+1)*5+breathing+2;
+                PointF left=new PointF(132+lx/.052f,169+rasterBreath+ly/.035f);
+                PointF right=new PointF(176+rx/.052f,171+rasterBreath+ry/.035f);
+                return new GarmentFit(cat,Kind,rasterBreath,left,right);
+            }
+        }
+
         static void ClipAssets(Atlas a,Cat cat,Garment garment,string prefix,WordTrick rule)
         {
             string clip=prefix+"clip/"+rule.Word;
@@ -233,15 +249,25 @@ namespace KeyboardCat
                 PointF l=new PointF(132,169+breath),r=new PointF(176,171+breath);
                 TrickPose p=TrickPose.Sample(motion.Tricks,cat,time,breath,ref l,ref r);
                 GarmentFit fit=p.FitArms(cat,garment,breath,ref l,ref r);
+                int posture=0;
+                if(garment!=Garment.Plain) {
+                    float rasterBreath;
+                    GarmentFit torso=fit.AtlasTorso(out posture,out rasterBreath);
+                    string sprite=prefix+"posture/"+posture;
+                    if(!a.Sprites.ContainsKey(sprite)) a.Put(sprite,g=>Torso(g,cat,torso,rasterBreath));
+                }
                 string frame=clip+"/"+i;
                 a.Put(frame+"/back",g=>{
+                    GraphicsState transform=g.Save();
                     FigureSpace(g,cat); p.MoveBody(g);
                     float[] root;
                     using(Matrix matrix=g.Transform) root=matrix.Elements;
-                    if(garment!=Garment.Plain) Torso(g,cat,fit,breath);
+                    g.Restore(transform);
+                    Footwork(g,cat,p);
                     if(!p.InFront(1)) DrawArm(g,cat,true,l,fit,p.LeftTurn,p.LeftPads);
                     if(!p.InFront(2)) DrawArm(g,cat,false,r,fit,p.RightTurn,p.RightPads);
                     if(p.Kind==TrickKind.Love) Heart(g,152,159+p.Beat,1.03f+.07f*p.Beat,0,p.Weight);
+                    FigureSpace(g,cat);p.MoveBody(g);
                     g.TranslateTransform(Cat.HeadX+p.HeadX,Cat.HeadY+Cat.HeadDrop+breath+p.HeadY);
                     g.RotateTransform(p.HeadTurn); g.ScaleTransform(Cat.HeadWidth,Cat.HeadHeight);
                     g.TranslateTransform(-Cat.HeadX,-Cat.HeadY);
@@ -251,7 +277,7 @@ namespace KeyboardCat
                         heads.Add(new[]{m[0]/Retina,m[1]/Retina,m[2]/Retina,m[3]/Retina,m[4]/Retina,m[5]/Retina,
                             1-p.Squint,p.Smile,
                             root[0]/Retina,root[1]/Retina,root[2]/Retina,root[3]/Retina,root[4]/Retina,root[5]/Retina,
-                            p.Tail,p.TailTurn,p.Weight,p.EarLeft,p.EarRight,p.Still,p.Focus,p.GazeX,p.GazeY});
+                            p.Tail,p.TailTurn,p.Weight,p.EarLeft,p.EarRight,p.Still,p.Focus,p.GazeX,p.GazeY,p.Air,(float)posture});
                     }
                 });
                 a.Put(frame+"/front",g=>{
@@ -260,24 +286,6 @@ namespace KeyboardCat
                 });
             }
             a.Clips.Add(clip,heads);
-        }
-
-        // The new props use existing clothed body clips. Only the foreground changes between actions.
-        static void PropAssets(Atlas a,Cat cat,string prefix,WordTrick rule)
-        {
-            Motion motion=new Motion(); motion.Tricks.Play(rule,1);
-            int count=(int)Math.Ceiling(rule.Duration*ClipFps);
-            for(int i=0;i<count;i++) {
-                double t=1+i/(double)ClipFps;
-                float breath=(float)Math.Sin(t*2.05)*(cat.Longhair?1:.62f);
-                PointF l=new PointF(132,169+breath),r=new PointF(176,171+breath);
-                TrickPose pose=TrickPose.Sample(motion.Tricks,cat,t,breath,ref l,ref r);
-                GarmentFit fit=pose.FitArms(cat,Garment.Plain,breath,ref l,ref r);
-                a.Put(prefix+"prop/"+rule.Word+"/"+i,g=>{
-                    FigureSpace(g,cat); pose.MoveBody(g);
-                    ActionForeground(g,cat,pose,l,r,fit);
-                });
-            }
         }
 
         public void ExportMac(string folder)
@@ -293,9 +301,8 @@ namespace KeyboardCat
                         string outfit=prefix+(int)garment+"/";
                         ArmAssets(a,cat,garment,outfit);
                         foreach(WordTrick rule in WordTrick.All.Concat(WordTrick.Idle))
-                            if(rule.SharedPose==null) ClipAssets(a,cat,garment,outfit,rule);
+                            ClipAssets(a,cat,garment,outfit,rule);
                     }
-                    foreach(WordTrick rule in WordTrick.All) if(rule.SharedPose!=null) PropAssets(a,cat,prefix,rule);
                     Console.WriteLine(cat.Name+" exported");
                 }
                 a.Save();

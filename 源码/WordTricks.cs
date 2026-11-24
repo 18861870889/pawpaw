@@ -11,25 +11,24 @@ namespace KeyboardCat
         public readonly string Word, Pinyin, Label, ShortLabel;
         public bool IsIdle {get { return Pinyin==null; }}
         public readonly double Duration;
-        public readonly WordTrick SharedPose;
 
-        WordTrick(TrickKind kind,string word,string pinyin,string label,string shortLabel,double duration,WordTrick sharedPose=null)
+        WordTrick(TrickKind kind,string word,string pinyin,string label,string shortLabel,double duration)
         {
-            Kind=kind; Word=word; Pinyin=pinyin; Label=label; ShortLabel=shortLabel; Duration=duration; SharedPose=sharedPose;
+            Kind=kind; Word=word; Pinyin=pinyin; Label=label; ShortLabel=shortLabel; Duration=duration;
         }
 
         public static readonly WordTrick Wave=new WordTrick(TrickKind.Wave,"hello","nihao","挥爪打招呼","挥爪",2.2);
         public static readonly WordTrick Love=new WordTrick(TrickKind.Love,"love","aixin","双爪捧心","捧心",2.4);
         public static readonly WordTrick Fish=new WordTrick(TrickKind.Fish,"fish","xiaoyu","抱鱼啃两口","抱鱼",2.55);
         public static readonly WordTrick Sleep=new WordTrick(TrickKind.Sleep,"sleep","wanan","歪头打盹","打盹",3.25);
-        public static readonly WordTrick Dance=new WordTrick(TrickKind.Dance,"dance","tiaowu","踩拍子跳舞","跳舞",2.7);
+        public static readonly WordTrick Dance=new WordTrick(TrickKind.Dance,"dance","tiaowu","跳舞 · 换步摆肩","换步舞",3.55);
         public static readonly WordTrick Fortune=new WordTrick(TrickKind.Fortune,"laicai","fortune","来财 · 招财爪","招财",2.75);
         public static readonly WordTrick Toast=new WordTrick(TrickKind.Toast,"jingzijiyibei","cheers","敬自己一杯 · 举杯","举杯",3.1);
         public static readonly WordTrick Freeze=new WordTrick(TrickKind.Freeze,"yingkong","freeze","硬控 · 原地定格","定格",2.7);
         public static readonly WordTrick Basketball=new WordTrick(TrickKind.Basketball,"jinitaimei","jntm","鸡你太美 · 运球舞","运球舞",3.8);
-        public static readonly WordTrick SweetCone=new WordTrick(TrickKind.SweetCone,"mixuebingchengtianmimi","mxbctmm","蜜雪冰城甜蜜蜜 · 甜筒摇摆","甜筒摇摆",Dance.Duration,Dance);
-        public static readonly WordTrick RiceBowl=new WordTrick(TrickKind.RiceBowl,"dinnertime","ganfanshijian","干饭时间 · 捧碗扒饭","捧碗扒饭",Fish.Duration,Fish);
-        public static readonly WordTrick TripleTap=new WordTrick(TrickKind.TripleTap,"triplelike","yijiansanlian","一键三连 · 拍爪三连","拍爪三连",Wave.Duration,Wave);
+        public static readonly WordTrick SweetCone=new WordTrick(TrickKind.SweetCone,"mixuebingchengtianmimi","mxbctmm","蜜雪冰城甜蜜蜜 · 甜筒舞","甜筒舞",3.55);
+        public static readonly WordTrick RiceBowl=new WordTrick(TrickKind.RiceBowl,"dinnertime","ganfanshijian","干饭时间 · 捧碗扒饭","捧碗扒饭",3.12);
+        public static readonly WordTrick TripleTap=new WordTrick(TrickKind.TripleTap,"triplelike","yijiansanlian","一键三连 · 跳起来拍屏","跳起拍屏",2.72);
         public static readonly WordTrick[] All={Wave,Love,Fish,Sleep,Dance,Fortune,Toast,Freeze,Basketball,SweetCone,RiceBowl,TripleTap};
         public static readonly WordTrick[] Idle={
             new WordTrick(TrickKind.Groom,"groom",null,"抹抹脸","洗脸",3.0),

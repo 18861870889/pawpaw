@@ -138,6 +138,10 @@ namespace KeyboardCat
             CatGesture gesture=CatGesture.Sample(cat,now,l,r,temper,cover,trick);
             lookX=Motion.Mix(lookX,trick.GazeX,trick.Focus);lookY=Motion.Mix(lookY,trick.GazeY,trick.Focus);
             GarmentFit fit=trick.FitArms(cat,outfit.Clothes,breath,ref left,ref right);
+            if(trick.Air>.005f) {
+                float radius=36-10*trick.Air;
+                Oval(g,Faded(C(0x67596a),.19f*trick.Air),Cat.SeatX-radius,192,radius*2,5.2f);
+            }
             GraphicsState figure=FigureSpace(g,cat);
             trick.MoveBody(g);
             using (Matrix torso=TorsoMatrix())
@@ -154,7 +158,7 @@ namespace KeyboardCat
                 if (cat.Longhair) DrawRuff(g,cat,breath);
                 g.Restore(fur);
             }
-            DrawGarment(g,fit);
+            DrawGarment(g,fit);Footwork(g,cat,trick);
             g.Restore(figure);
 
             GraphicsState screen = g.Save();

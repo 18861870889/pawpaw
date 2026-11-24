@@ -10,7 +10,7 @@ namespace KeyboardCat
         {
             float w=p.Weight,side=cat.Longhair?-1:1;
             if(w<.01f) return;
-            float swing=(float)Math.Sin(p.Seconds*(cat.Longhair?8.0:9.1));
+            float swing=(float)Math.Sin((p.Seconds-.13f)*Math.PI/.405);
             GraphicsState saved=g.Save();
             g.TranslateTransform(paw.X+side*5,paw.Y-9);
             g.RotateTransform(side*(8+10*swing)); g.ScaleTransform(.8f+.2f*w,.8f+.2f*w);
@@ -29,6 +29,8 @@ namespace KeyboardCat
             Curve(g,Faded(C(0xd98493),w),1.1f,-5,-18,-1,-16,4,-17,6,-20);
             Oval(g,Faded(C(0xd95065),w),-10,-25,7,7);Oval(g,cream,-8.6f,-24,1.7f,1.7f);
             g.Restore(saved);
+            float heart=Motion.Smooth((p.Seconds-2.0f)/.23f)*(1-Motion.Smooth((p.Seconds-2.39f)/.43f));
+            if(heart>0) Heart(g,148-side*17,119-9*heart,.4f+.19f*heart,-side*8,heart*w);
             for(int i=0;i<2;i++) {
                 float u=(p.Seconds*.73f+i*.5f)%1,dir=i==0?side:-side;
                 Note(g,152+dir*(64+17*u),110-38*u,.52f+.16f*u,dir*(7+10*u),i==0?C(0xcf617c):C(0x659bb4),w*(float)Math.Sin(Math.PI*u));
@@ -39,7 +41,7 @@ namespace KeyboardCat
         {
             if(p.Weight<.01f) return;
             float w=p.Weight,bite=p.Beat;
-            GraphicsState saved=g.Save();g.TranslateTransform(151,158-6*bite);
+            GraphicsState saved=g.Save();g.TranslateTransform(p.Prop.X,p.Prop.Y);
             Color rim=Faded(C(0x426f69),w),ivory=Faded(C(0xfff0d3),w);
             for(int i=0;i<5;i++) {
                 float x=-16+7.2f*i,y=-9-(i==2?5:i%2*2);
@@ -51,10 +53,6 @@ namespace KeyboardCat
             }
             Curve(g,ivory,1.2f,-15,3,-9,8,8,9,15,3);
             using(GraphicsPath foot=RoundRect(-8,14,16,3.5f,1.4f)) Fill(g,foot,rim);
-            float lift=(float)Math.Sin(p.Seconds*7);
-            GraphicsState spoon=g.Save();g.TranslateTransform(16,-6-6*bite);g.RotateTransform(-28+15*lift);
-            Curve(g,Faded(C(0x8c6758),w),2.8f,0,0,4,-4,11,-12,15,-17);
-            Oval(g,Faded(C(0xf3bc77),w),-5,-2,9,5);g.Restore(spoon);
             for(int i=0;i<2;i++) {
                 float u=(p.Seconds*.9f+i*.5f)%1;
                 Color steam=Faded(C(0xe7d3bc),w*(float)Math.Sin(Math.PI*u)*.85f);
@@ -62,23 +60,41 @@ namespace KeyboardCat
                 Curve(g,steam,1.25f,x,y,x-4,y-3,x+4,y-5,x+1,y-8);
             }
             g.Restore(saved);
+            Color wood=Faded(C(0x997059),w);
+            float x1=p.Spoon.X,y1=p.Spoon.Y,x2=p.SpoonGrip.X,y2=p.SpoonGrip.Y;
+            Curve(g,wood,2.8f,x1,y1,x1+(x2-x1)*.35f,y1+1,x2,y2,x2+(x2-x1)*.19f,y2+1);
+            Oval(g,wood,x1-5,y1-2.7f,10,5.4f);
+            if(bite<.87f) {
+                Oval(g,ivory,x1-3.9f,y1-4.3f,5.7f,3.5f);Oval(g,ivory,x1+.2f,y1-4,3.8f,2.6f);
+            }
         }
 
-        static void DrawTripleTap(Graphics g,Cat cat,TrickPose p,PointF paw)
+        static void DrawTripleTap(Graphics g,Cat cat,TrickPose p)
         {
             if(p.Weight<.01f) return;
-            float side=cat.Longhair?-1:1;
-            for(int i=0;i<3;i++) {
-                float t=p.Seconds-.12f-i*.32f;
-                if(t<=0) continue;
-                float rise=Motion.Smooth(t/.19f),pop=1+.22f*(float)Math.Sin(Math.PI*Math.Min(1,t/.26f));
-                float x=152+side*(53+16*i),y=103-13*i+(1-rise)*8;
-                GraphicsState saved=g.Save();g.TranslateTransform(x,y);g.ScaleTransform(pop,pop);g.RotateTransform(side*(i-1)*8);
-                float alpha=p.Weight*rise;
-                Color edge=Faded(C(0x796079),alpha),ink=Faded(C(0xfff5da),alpha);
+            GraphicsState glass=g.Save();p.GlassSpace(g,cat);
+            float reveal=Motion.Smooth((p.Seconds-.14f)/.25f),fade=1-Motion.Smooth((p.Seconds-1.56f)/.39f);
+            for(int i=0;i<TrickPose.GlassButtons.Length;i++) {
+                float t=p.Seconds-TrickPose.TouchTimes[i];
+                float glow=Motion.Smooth((t+.012f)/.045f);
+                float pop=t>=0 && t<.23f?1+.25f*(float)Math.Sin(Math.PI*t/.23f):1;
+                PointF center=TrickPose.GlassButtons[i];
+                GraphicsState saved=g.Save();g.TranslateTransform(center.X,center.Y);
+                float alpha=p.Weight*reveal*fade;
+                Color color=i==0?C(0xd77791):i==1?C(0xd39942):C(0x5eaa99);
+                if(t>=0 && t<.34f) {
+                    float u=t/.34f,r=11+18*Motion.Smooth(u);
+                    using(Pen ripple=new Pen(Faded(color,alpha*(1-u)),2.3f*(1-u)+.5f)) g.DrawEllipse(ripple,-r,-r,2*r,2*r);
+                    for(int ray=0;ray<5;ray++) {
+                        double angle=(ray*72+i*19)*Math.PI/180;float dx=(float)Math.Cos(angle),dy=(float)Math.Sin(angle);
+                        using(Pen streak=new Pen(Faded(color,alpha*(1-u)),1.4f))
+                            g.DrawLine(streak,dx*(r+2),dy*(r+2),dx*(r+5),dy*(r+5));
+                    }
+                }
+                g.ScaleTransform(pop,pop);
+                Color edge=Faded(color,alpha*(.41f+.59f*glow)),ink=Faded(glow>.5f?C(0xfff6e4):color,alpha*(.54f+.46f*glow));
                 using(GraphicsPath disk=new GraphicsPath()) {
-                    disk.AddEllipse(-8,-8,16,16);
-                    Fill(g,disk,Faded(i==0?C(0xd98098):i==1?C(0xdeab61):C(0x84aca2),alpha));Stroke(g,disk,edge,1);
+                    disk.AddEllipse(-9,-9,18,18);Fill(g,disk,Faded(glow>.5f?color:C(0xfff9ec),alpha*(.22f+.71f*glow)));Stroke(g,disk,edge,1.3f);
                 }
                 if(i==0) {
                     using(GraphicsPath thumb=new GraphicsPath()) {
@@ -97,11 +113,8 @@ namespace KeyboardCat
                     using(GraphicsPath star=new GraphicsPath()) {star.AddPolygon(points);Fill(g,star,ink);}
                 }
                 g.Restore(saved);
-                if(t<.23f) {
-                    float flash=p.Weight*(1-t/.23f);
-                    Curve(g,Faded(C(0xdeab61),flash),1.4f,paw.X+side*8,paw.Y-2,paw.X+side*10,paw.Y-5,paw.X+side*13,paw.Y-8,paw.X+side*15,paw.Y-9);
-                }
             }
+            g.Restore(glass);
         }
     }
 }

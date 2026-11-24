@@ -44,6 +44,7 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
 
 @implementation PetArt {
     NSData *_atlas,*_printInks;
+    int _clipFPS;
     NSDictionary *_sprites,*_clips;
     NSCache<NSNumber *,KCTexture *> *_textures;
     CGContextRef _ctx;
@@ -60,9 +61,10 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
     NSDictionary *m=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL]:nil;
     _atlas=[NSData dataWithContentsOfURL:bin options:NSDataReadingMappedIfSafe error:NULL];
     if(![m isKindOfClass:[NSDictionary class]] || !_atlas.length || [m[@"scale"] intValue]!=2 ||
-        [m[@"tricks"] count]!=KC_WORDS || [m[@"keys"] count]!=63 || [m[@"version"] intValue]!=7 || [m[@"idles"] count]!=KC_IDLE_COUNT || ![m[@"catalog"][@"roles"] count] || !m[@"sprites"][@"board/0"]) return nil;
+        [m[@"tricks"] count]!=KC_WORDS || [m[@"keys"] count]!=63 || [m[@"version"] intValue]!=8 || [m[@"idles"] count]!=KC_IDLE_COUNT || ![m[@"catalog"][@"roles"] count] || !m[@"sprites"][@"board/0"]) return nil;
     _printInks=[NSData dataWithContentsOfURL:[bundle URLForResource:@"PrintInks" withExtension:@"rgb"]];
     if(_printInks.length!=32768*6) return nil;
+    _clipFPS=[m[@"fps"] intValue];if(_clipFPS<1 || _clipFPS>60) return nil;
     _catalog=m[@"catalog"]; _sprites=m[@"sprites"]; _clips=m[@"clips"]; _tricks=m[@"tricks"]; _idles=m[@"idles"]; _keymap=m[@"keymap"]; _keys=m[@"keys"];
     _chinese=[[ChineseInput alloc] initWithBundle:bundle tricks:_tricks];
     if(!_chinese) return nil;
@@ -177,13 +179,12 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
     NSString *frameName=nil,*foreground=nil; NSArray *headMatrix=nil;
     if(m->trick>=0 && m->trick<KC_ACTIONS) {
         NSArray *rule=m->trick<KC_WORDS?_tricks[m->trick]:_idles[m->trick-KC_WORDS];
-        NSString *shared=rule.count>5 && [rule[5] isKindOfClass:NSString.class]?rule[5]:nil;
-        NSString *clip=[NSString stringWithFormat:@"%@clip/%@",outfit,shared?:rule[0]];
+        NSString *clip=[NSString stringWithFormat:@"%@clip/%@",outfit,rule[0]];
         NSArray *frames=_clips[clip];
         if(frames.count) {
-            int i=clampi((int)floor((t-m->began)*15),0,(int)frames.count-1);
+            int i=clampi((int)floor((t-m->began)*_clipFPS),0,(int)frames.count-1);
             headMatrix=frames[i]; frameName=[NSString stringWithFormat:@"%@/%d/",clip,i];
-            foreground=shared?[NSString stringWithFormat:@"%@prop/%@/%d",who,rule[0],i]:[frameName stringByAppendingString:@"front"];
+            foreground=[frameName stringByAppendingString:@"front"];
         }
     }
     double phase=t+(cat?2.3:0),weight=[headMatrix[16] doubleValue],still=[headMatrix[19] doubleValue];
@@ -195,6 +196,12 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
     int swish=clampi((int)lround(bend*(1-still)*(1-.90*cover)+[headMatrix[14] doubleValue])+12,0,24);
     double turn=3.2*sin(phase*1.35)-3.5*typing+temper*5*sin(t*9);
     turn=(turn*(1-cover)+8*cover)*(1-weight)+[headMatrix[15] doubleValue];
+    double air=[headMatrix[23] doubleValue];
+    if(air>.005) {
+        double radius=36-10*air;
+        CGContextSetRGBFillColor(_ctx,103./255,89./255,106./255,.19*air);
+        CGContextFillEllipseInRect(_ctx,CGRectMake(153-radius,192,2*radius,5.2));
+    }
     double focus=[headMatrix[20] doubleValue];
     lx=lx*(1-focus)+[headMatrix[21] doubleValue]*focus;ly=ly*(1-focus)+[headMatrix[22] doubleValue]*focus;
     CGContextSaveGState(_ctx);
@@ -208,9 +215,10 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
     [self sprite:[NSString stringWithFormat:@"%@tail/%d/%d",who,pattern,swish]];
     CGContextRestoreGState(_ctx);
     if(clothes==0) [self sprite:[NSString stringWithFormat:@"%@body/%d",who,pattern]];
-    else if(!frameName) [self sprite:[outfit stringByAppendingString:@"body"]];
-    CGContextRestoreGState(_ctx);
+    else if(frameName) [self sprite:[NSString stringWithFormat:@"%@posture/%d",outfit,[headMatrix[24] intValue]]];
+    else [self sprite:[outfit stringByAppendingString:@"body"]];
     if(frameName) [self sprite:[frameName stringByAppendingString:@"back"]];
+    CGContextRestoreGState(_ctx);
     [self sprite:[NSString stringWithFormat:@"board/%d",board]];
     [self sprite:[NSString stringWithFormat:@"mouse/%d",mouse]];
     for(int hand=0;hand<2;hand++) if(reach[hand]>.58) {

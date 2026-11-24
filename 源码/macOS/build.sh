@@ -20,8 +20,8 @@ trap 'exit 1' HUP INT TERM
 art=${PAWPAW_ART_DIR:-}
 if [ -z "$art" ]; then art="$tmp/art"; sh "$here/prepare-art.sh" "$art"; fi
 for file in Artwork.bin Artwork.json; do [ -s "$art/$file" ] || { echo "Missing $file" >&2; exit 1; }; done
-if ! /usr/bin/plutil -extract version xml1 -o - "$art/Artwork.json" | /usr/bin/grep -q '<integer>7</integer>'; then
-    echo 'Use a PawPaw 2.1 artwork archive or export the art from this checkout.' >&2
+if ! /usr/bin/plutil -extract version xml1 -o - "$art/Artwork.json" | /usr/bin/grep -q '<integer>8</integer>'; then
+    echo 'Use a PawPaw 2.2 artwork archive or export the art from this checkout.' >&2
     exit 1
 fi
 app="$tmp/PawPaw.app"

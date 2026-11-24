@@ -7,8 +7,8 @@ using System.Windows.Forms;
 [assembly: AssemblyTitle("爪爪 PawPaw")]
 [assembly: AssemblyDescription("陪你打字、换装和玩彩蛋的桌面猫")]
 [assembly: AssemblyProduct("PawPaw")]
-[assembly: AssemblyVersion("2.1.0.0")]
-[assembly: AssemblyFileVersion("2.1.0.0")]
+[assembly: AssemblyVersion("2.2.0.0")]
+[assembly: AssemblyFileVersion("2.2.0.0")]
 
 namespace KeyboardCat
 {

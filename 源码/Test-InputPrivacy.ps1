@@ -210,3 +210,12 @@ try {
     & $fixture $exe
     if($LASTEXITCODE){throw 'Native Chinese input regression'}
 } finally {if(Test-Path -LiteralPath $fixture){Remove-Item -LiteralPath $fixture}}
+
+$stageFixture=Join-Path ([IO.Path]::GetTempPath()) ('PawPaw-poses-'+[guid]::NewGuid().ToString('N')+'.exe')
+try {
+    $files=@(Get-ChildItem -LiteralPath $PSScriptRoot -File -Filter '*.cs' | ForEach-Object FullName)
+    & $csc /nologo /unsafe /optimize+ /codepage:65001 /main:KeyboardCat.Painter "/lib:$wpf" /r:UIAutomationClient.dll,UIAutomationTypes.dll,WindowsBase.dll,System.Drawing.dll,System.Windows.Forms.dll "/resource:$PSScriptRoot\ChineseWords.tsv,ChineseWords.tsv" "/out:$stageFixture" @files (Join-Path $PSScriptRoot '..\scripts\test-choreography.cs')
+    if($LASTEXITCODE){throw 'Compiling the choreography fixture failed'}
+    & $stageFixture
+    if($LASTEXITCODE){throw 'Choreography regression'}
+} finally {if(Test-Path -LiteralPath $stageFixture){Remove-Item -LiteralPath $stageFixture}}

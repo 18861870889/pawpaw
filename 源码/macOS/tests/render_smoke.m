@@ -2,6 +2,7 @@
 #import <CoreGraphics/CoreGraphics.h>
 #include <assert.h>
 #include <stdio.h>
+#include <math.h>
 
 static NSData *pixels(PetArt *art,NSDictionary *role,KCMotion *motion,double time) {
     [art renderRole:role clothes:0 hat:0 board:0 mouse:0 motion:motion time:time];
@@ -31,6 +32,23 @@ int main(int argc,const char **argv) {
             }
         }
         for(int i=0;i<KC_IDLE_COUNT;i++) durations[KC_WORDS+i]=[art.idles[i][1] doubleValue];
+        NSURL *index=[bundle URLForResource:@"Artwork" withExtension:@"json"];
+        NSDictionary *atlas=[NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfURL:index] options:0 error:NULL];
+        int fps=[atlas[@"fps"] intValue];
+        assert([atlas[@"version"] intValue]==8 && fps==24);
+        for(NSString *shape in @[@"short",@"long"]) for(int garment=0;garment<7;garment++) {
+            NSString *outfit=[NSString stringWithFormat:@"%@/%d/",shape,garment];
+            for(int egg=0;egg<KC_WORDS;egg++) {
+                NSArray *rule=art.tricks[egg];
+                NSArray *clip=atlas[@"clips"][[outfit stringByAppendingFormat:@"clip/%@",rule[0]]];
+                assert(clip.count==(NSUInteger)ceil([rule[3] doubleValue]*fps));
+                for(NSArray *frame in clip) {
+                    assert(frame.count==25);
+                    if(garment) assert(atlas[@"sprites"][[outfit stringByAppendingFormat:@"posture/%d",[frame[24] intValue]]]);
+                }
+                if(egg==11) assert([clip[(int)lround(1.08*fps)][23] doubleValue]>.94 && [clip[(int)lround(1.85*fps)][23] doubleValue]==0);
+            }
+        }
         int keys[]={3,34,1,4}; // F I S H on the Mac virtual keyboard
         assert([art.catalog[@"roles"] count]==7);
         for(int cat=0;cat<(int)[art.catalog[@"roles"] count];cat++) for(int print=0;print<2;print++){
@@ -75,7 +93,13 @@ int main(int argc,const char **argv) {
             assert(m.wordBubble<0 && m.trick<0 && kc_cover(&m,2)>.99);
             assert(![withoutWord isEqual:pixels(art,role,&m,2)]);
         }
-        puts("All seven breeds rendered word tricks, basketball and secure input in both art styles.");
+        for(int garment=0;garment<7;garment++) {
+            KCMotion leap;kc_init(&leap,aliases,durations,art.chinese.pinyinAliases);
+            kc_play(&leap,11,1);
+            [art renderRole:art.catalog[@"roles"][garment] clothes:garment hat:garment%6 board:0 mouse:0 motion:&leap time:1.86];
+            assert(art.frame && CGImageGetWidth(art.frame)==640);
+        }
+        puts("All seven breeds, garments, independent choreography, both art styles and secure input passed.");
     }
     return 0;
 }

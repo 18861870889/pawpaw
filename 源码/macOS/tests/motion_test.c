@@ -3,7 +3,7 @@
 #include <math.h>
 #include <stdio.h>
 static const char *const words[]={"hello","nihao","love","aixin","fish","xiaoyu","sleep","wanan","dance","tiaowu","laicai","fortune","jingzijiyibei","cheers","yingkong","freeze","jinitaimei","jntm","mixuebingchengtianmimi","mxbctmm","dinnertime","ganfanshijian","triplelike","yijiansanlian"};
-static const double durations[]={2.2,2.4,2.55,3.25,2.7,2.75,3.1,2.7,3.8,2.7,2.55,2.2,3.,2.65,3.05};
+static const double durations[]={2.2,2.4,2.55,3.25,3.55,2.75,3.1,2.7,3.8,3.55,3.12,2.72,3.,2.65,3.05};
 static const uint32_t pinyinAliases=(1u<<1)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<10)|(1u<<12)|(1u<<14)|(1u<<16)|(1u<<17)|(1u<<18)|(1u<<19)|(1u<<21)|(1u<<23);
 static void type(KCMotion *m,const char *word,double t) {
     for(;*word;word++,t+=.09) {

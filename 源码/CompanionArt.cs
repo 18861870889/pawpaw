@@ -10,21 +10,22 @@ namespace KeyboardCat
         {
             public float Smile {get {return Kind==TrickKind.Fish || Kind==TrickKind.RiceBowl || Kind==TrickKind.Love || Kind==TrickKind.Toast || Kind==TrickKind.Groom ? Weight : 0;}}
 
-            public bool InFront(int hand) {return FrontHand==hand && Weight>.01f;}
+            public bool InFront(int hand) {return Weight>.01f && (FrontHand==hand || FrontHand==3);}
+            public PointF ArmOffset(bool left) {return new PointF((left?-6:6)*Weight,18*Weight);}
 
+            void AimFront(GarmentFit fit,bool left,ref PointF paw,ref float turn)
+            {
+                PointF shoulder=fit.Shoulder(left),offset=ArmOffset(left);
+                float x=paw.X-offset.X-shoulder.X,y=paw.Y-offset.Y-shoulder.Y;
+                turn=(float)(Math.Atan2(y,x)*180/Math.PI)-90;
+                paw=new PointF(shoulder.X,shoulder.Y+(float)Math.Sqrt(x*x+y*y));
+            }
             public GarmentFit FitArms(Cat cat,Garment clothes,float breath,ref PointF left,ref PointF right)
             {
                 GarmentFit fit=new GarmentFit(cat,clothes,breath,left,right);
                 if(FrontHand!=0) {
-                    // Draft a hanging foreleg, then turn it at the shoulder towards the actual contact.
-                    // The outline and cuff keep their winding even when a paw rises above the face.
-                    bool useLeft=FrontHand==1;
-                    PointF shoulder=fit.Shoulder(useLeft),target=useLeft?left:right;
-                    FrontOffset=new PointF((useLeft?-6:6)*Weight,18*Weight);
-                    float dx=target.X-FrontOffset.X-shoulder.X,dy=target.Y-FrontOffset.Y-shoulder.Y;
-                    float degrees=(float)(Math.Atan2(dy,dx)*180/Math.PI)-90;
-                    PointF hanging=new PointF(shoulder.X,shoulder.Y+(float)Math.Sqrt(dx*dx+dy*dy));
-                    if(useLeft) {left=hanging;LeftTurn=degrees;}else {right=hanging;RightTurn=degrees;}
+                    if(InFront(1)) AimFront(fit,true,ref left,ref LeftTurn);
+                    if(InFront(2)) AimFront(fit,false,ref right,ref RightTurn);
                 } else if(LeftTurn!=0 || RightTurn!=0) {
                     fit=new GarmentFit(cat,clothes,breath,TurnPaw(left,fit.Shoulder(true),LeftTurn),
                         TurnPaw(right,fit.Shoulder(false),RightTurn));
@@ -39,44 +40,54 @@ namespace KeyboardCat
                 PointF target;
                 switch(Kind) {
                     case TrickKind.Fortune:
-                        float beckon=.5f+.5f*(float)Math.Cos(t*8.4);
-                        target=new PointF(151+side*(68-6*beckon),109+19*beckon);
+                        float beckon=Accent(t,.83f,.23f,.26f)+Accent(t,1.58f,.27f,.29f);
+                        float reel=Ease(t,.32f,.84f)*(1-Ease(t,1.02f,1.25f))+Ease(t,1.18f,1.61f)*(1-Ease(t,1.85f,2.20f));
+                        target=new PointF(151+side*(71-21*beckon),108+23*beckon);
                         FrontHand=side<0?1:2;
                         if(side<0) {left=target;LeftPads=w*(1-beckon);} else {right=target;RightPads=w*(1-beckon);}
-                        HeadTurn=-side*4*w;HeadY=-2*w;Squint=.35f*w;
-                        TailTurn=(-12-8*beckon)*w;Tail=5*beat*w;
-                        EarLeft=-.45f;EarRight=.38f*beat;
+                        Prop=new PointF(151+side*(96-38*reel),134-26*(float)Math.Sin(Math.PI*reel)-5*reel);
+                        Beat=reel;BodyX=side*(5-9*beckon)*w;HeadTurn=side*(4-9*beckon)*w;
+                        Focus=.74f*w;GazeX=side*(1-.8f*reel);GazeY=.22f;Squint=.39f*beckon*w;
+                        TailTurn=(-10-12*beckon)*w;EarLeft=-.52f;EarRight=.56f*beckon;
                         break;
                     case TrickKind.Toast:
-                        float lift=Motion.Smooth((t-.15f)/.8f)*(1-Motion.Smooth((t-2.2f)/.65f));
-                        Prop=new PointF(151+side*(53-7*lift),169-26*lift);
-                        target=new PointF(Prop.X-15*side,Prop.Y+4);
-                        FrontHand=side<0?1:2;
+                        float lift=Ease(t,.12f,.72f)*(1-Ease(t,2.30f,2.90f));
+                        float clink=Accent(t,1.02f,.25f,.32f),sip=Accent(t,1.94f,.40f,.37f);
+                        Prop=new PointF(151+side*(51+12*clink-28*sip),168-34*lift-6*clink);
+                        target=new PointF(Prop.X+side*12,Prop.Y+3);FrontHand=side<0?1:2;
                         if(side<0) left=target;else right=target;
-                        HeadTurn=side*6*w;HeadY=4*lift*w;Squint=.97f*lift*w;
-                        EarLeft=-.22f;EarRight=-.38f;TailTurn=(-6-4*lift)*w;
+                        CupAngle=side*(7*clink-25*sip);BodyTurn=side*(3*clink-3*sip)*w;
+                        HeadTurn=side*(4*lift+5*sip)*w;HeadY=(2*lift+6*sip)*w;HeadX=side*6*sip*w;
+                        Squint=(.15f*lift+.81f*sip)*w;Focus=.78f*w;GazeX=side*(.88f-.56f*sip);
+                        EarLeft=-.32f*lift;EarRight=-.46f*sip;TailTurn=(-7-5*clink)*w;
                         break;
                     case TrickKind.Basketball:
-                        // Two dribbles, a crossover and shoulder accents, then catch the ball.
-                        float cross=Motion.Smooth((t-1.12f)/.57f);
-                        float catchBall=Motion.Smooth((t-2.94f)/.52f);
-                        float bounce=(float)Math.Abs(Math.Cos(t*Math.PI/.55))*(1-catchBall);
+                        float cross=Ease(t,.98f,1.55f),gather=Ease(t,1.50f,1.84f);
                         float ballSide=side*(1-2*cross);
-                        float groove=(float)Math.Sin(t*Math.PI/.33);
-                        Prop=new PointF(151+ballSide*(51-27*catchBall),185-28*bounce-31*catchBall);
-                        target=new PointF(Prop.X,Math.Min(169,Prop.Y-13));
+                        float bounce=(float)Math.Abs(Math.Cos(t*Math.PI/.48f));
+                        float shoulder=Accent(t,1.93f,.18f,.17f)-Accent(t,2.24f,.18f,.18f)+
+                            Accent(t,2.57f,.20f,.16f)-.7f*Accent(t,2.88f,.17f,.18f);
+                        float finish=Ease(t,2.97f,3.37f);
+                        Prop=new PointF(151+ballSide*(53-16*gather-8*finish),187-31*bounce*(1-gather)-32*gather-8*finish);
+                        target=new PointF(Prop.X-ballSide*5,Math.Min(170,Prop.Y-11)+12*gather);
                         FrontHand=ballSide<0?1:2;
-                        if(FrontHand==1) {left=target;right=new PointF(177,158+groove*6);}
-                        else {right=target;left=new PointF(124,158-groove*6);}
-                        BodyX=(ballSide*4+groove*2)*w;BodyY=-4*groove*groove*w;
-                        BodyTurn=groove*(3+3*cross)*w;HeadTurn=-groove*6*w;HeadX=-ballSide*3*w;
-                        HeadY=(2*bounce-2)*w;EarLeft=.65f*groove;EarRight=-EarLeft;
-                        TailTurn=(ballSide*9+groove*7)*w;Tail=5*groove*w;
-                        Focus=.65f*w;GazeX=ballSide;GazeY=.65f;Squint=.15f*groove*groove*w;
+                        PointF free=new PointF(151-ballSide*(34+17*shoulder),154-22*shoulder-14*finish);
+                        if(FrontHand==1){left=target;right=free;}else{right=target;left=free;}
+                        if(gather>.99f) FrontHand=3;
+                        Legs=w;LeftStep=.88f*Math.Max(0,shoulder)*w;RightStep=.88f*Math.Max(0,-shoulder)*w;
+                        BodyX=(ballSide*(7+7*gather)+side*14*shoulder)*w;
+                        BodyY=(3*(1-bounce)*(1-gather)-3*Math.Abs(shoulder))*w;
+                        BodyTurn=(ballSide*(4+3*gather)+side*14*shoulder)*w;Wide=-(.12f+.08f*Math.Abs(shoulder))*gather*w;Tall=-.035f*Math.Abs(shoulder)*w;
+                        HeadTurn=(-BodyTurn*.61f-side*3*shoulder)*w;HeadX=-ballSide*3*w;
+                        HeadY=(4*(1-bounce)*(1-gather)+3*Math.Abs(shoulder))*w;
+                        EarLeft=.59f*shoulder;EarRight=-.71f*shoulder;
+                        TailTurn=(ballSide*12-side*11*shoulder)*w;Tail=7*shoulder*w;
+                        Focus=.82f*w;GazeX=ballSide*(1-.8f*gather);GazeY=.78f*(1-gather)-.2f*finish;
                         break;
                     case TrickKind.Freeze:
                         float lockIn=1-Motion.Smooth((t-1.85f)/.50f);
-                        float shake=(1-lockIn)*(float)Math.Sin((t-1.85f)*22);
+                        float shake=Accent(t,2.17f,.25f,.42f)*(float)Math.Sin((t-1.85f)*25);
+                        float snap=Accent(t,.30f,.21f,.17f);BodyTurn=(-6*snap+2*shake)*w;
                         left=new PointF(122,183);right=new PointF(182,187);
                         LeftTurn=(75+4*shake)*w;RightTurn=(-84+4*shake)*w;LeftPads=RightPads=w;
                         Still=w*lockIn;Focus=w;GazeY=-.45f;
@@ -94,7 +105,8 @@ namespace KeyboardCat
                         TailTurn=(2-4*stroke)*w;
                         break;
                     case TrickKind.ChaseTail:
-                        float pounce=Motion.Smooth((t-.65f)/.35f)*(.5f+.5f*(float)Math.Sin((t-.8f)*7.7));
+                        float pounce=Accent(t,1.12f,.34f,.36f)+.75f*Accent(t,2.04f,.30f,.35f);
+                        float crouch=Accent(t,.62f,.36f,.22f);BodyX=(12*pounce-5*crouch)*w;BodyY=(6*crouch-7*pounce)*w;
                         right=new PointF(196+51*pounce,165-37*pounce);FrontHand=2;
                         BodyTurn=(3+3*pounce)*w;HeadTurn=(9+5*pounce)*w;HeadX=5*w;
                         Focus=w;GazeX=1;GazeY=-.15f;RightPads=.65f*pounce*w;
@@ -148,8 +160,8 @@ namespace KeyboardCat
             float w=p.Weight,side=cat.Longhair?-1:1;
             if(p.Kind==TrickKind.Fortune) {
                 float u=(p.Seconds*1.13f)%1;
-                float x=151+side*(77+12*u),y=141-56*(float)Math.Sin(Math.PI*u);
-                float alpha=w*(float)Math.Sin(Math.PI*u);
+                float x=p.Prop.X,y=p.Prop.Y;
+                float alpha=w*(.30f+.70f*(float)Math.Sin(Math.PI*u));
                 Color edge=Faded(C(0x98643e),alpha),gold=Faded(C(0xf2bf64),alpha);
                 using(GraphicsPath coin=new GraphicsPath()) {
                     coin.AddEllipse(x-7,y-7,14,14);Fill(g,coin,gold);Stroke(g,coin,edge,1.25f);
@@ -157,7 +169,7 @@ namespace KeyboardCat
                 using(GraphicsPath hole=RoundRect(x-2,y-2,4,4,.5f)) Fill(g,hole,edge);
                 Curve(g,Faded(C(0xffe9a4),alpha),1.1f,x-4,y-2,x-3,y-4,x-1,y-5,x+1,y-5);
             } else if(p.Kind==TrickKind.Toast) {
-                GraphicsState saved=g.Save();g.TranslateTransform(p.Prop.X,p.Prop.Y);g.ScaleTransform(-side*1.24f,1.24f);
+                GraphicsState saved=g.Save();g.TranslateTransform(p.Prop.X,p.Prop.Y);g.RotateTransform(p.CupAngle);g.ScaleTransform(side*1.24f,1.24f);
                 Color rim=Faded(C(0x536e6a),w),pale=Faded(C(0xbddccb),w);
                 using(GraphicsPath handle=new GraphicsPath()) {handle.AddEllipse(7,-4,11,10);Stroke(g,handle,rim,3.6f);Stroke(g,handle,pale,1.7f);}
                 using(GraphicsPath cup=Shape(-11,-6,-11,3,-9,9,-5,10,-1,12,5,12,8,8,10,5,11,-2,11,-6,6,-9,-7,-9,-11,-6)) {
@@ -192,19 +204,23 @@ namespace KeyboardCat
         static void ActionForeground(Graphics g,Cat cat,TrickPose p,PointF left,PointF right,GarmentFit fit)
         {
             if(p.Kind==TrickKind.None) return;
-            PointF wave=cat.Longhair?TrickPose.TurnPaw(left,fit.Shoulder(true),p.LeftTurn):
-                TrickPose.TurnPaw(right,fit.Shoulder(false),p.RightTurn);
+            bool leadLeft=cat.Longhair;
+            PointF wave=TrickPose.TurnPaw(leadLeft?left:right,fit.Shoulder(leadLeft),leadLeft?p.LeftTurn:p.RightTurn);
+            if(p.InFront(leadLeft?1:2)) {PointF offset=p.ArmOffset(leadLeft);wave=new PointF(wave.X+offset.X,wave.Y+offset.Y);}
             DrawTrickEffects(g,cat,p,wave);
             DrawMemeProp(g,cat,p);
-            if(p.Kind==TrickKind.SweetCone) DrawSweetCone(g,cat,p,wave);
-            if(p.Kind==TrickKind.RiceBowl) DrawRiceBowl(g,p);
-            if(p.Kind==TrickKind.TripleTap) DrawTripleTap(g,cat,p,wave);
-            if(p.InFront(1) || p.InFront(2)) {
-                bool isLeft=p.FrontHand==1;
-                GraphicsState elbow=g.Save();g.TranslateTransform(p.FrontOffset.X,p.FrontOffset.Y);
-                DrawArm(g,cat,isLeft,isLeft?left:right,fit,isLeft?p.LeftTurn:p.RightTurn,isLeft?p.LeftPads:p.RightPads);
+            if(p.Kind==TrickKind.TripleTap) DrawTripleTap(g,cat,p);
+            for(int i=0;i<2;i++) {
+                if(!p.InFront(i+1)) continue;
+                bool isLeft=i==0;PointF offset=p.ArmOffset(isLeft);
+                PointF paw=isLeft?left:right;float turn=isLeft?p.LeftTurn:p.RightTurn;
+                GraphicsState elbow=g.Save();g.TranslateTransform(offset.X,offset.Y);
+                DrawArm(g,cat,isLeft,paw,fit,turn,isLeft?p.LeftPads:p.RightPads);
+                if(p.Kind==TrickKind.TripleTap) ContactPaw(g,cat,TrickPose.TurnPaw(paw,fit.Shoulder(isLeft),turn),isLeft?p.PalmLeft:p.PalmRight);
                 g.Restore(elbow);
             }
+            if(p.Kind==TrickKind.SweetCone) DrawSweetCone(g,cat,p,wave);
+            if(p.Kind==TrickKind.RiceBowl) DrawRiceBowl(g,p);
             if(p.Kind==TrickKind.Fish && p.Weight>.1f) {
                 DrawGrippingTip(g,cat,true,left,fit,p.LeftTurn,p.Weight);
                 DrawGrippingTip(g,cat,false,right,fit,p.RightTurn,p.Weight);

@@ -4,7 +4,7 @@ PawPaw (爪爪) is a desktop cat for Windows and macOS. It taps along as you typ
 
 **[Download for Windows](https://github.com/18861870889/pawpaw/releases/latest/download/PawPaw-Windows.exe)** · **[Download for Mac](https://github.com/18861870889/pawpaw/releases/latest/download/PawPaw-macOS-universal.zip)** · [All releases and checksums](https://github.com/18861870889/pawpaw/releases) · [中文](README.md)
 
-![PawPaw cats performing their idle animations and word tricks](docs/preview.gif)
+![PawPaw jumping up to press the screen, dancing a step-touch and tracing a heart with an ice cream cone](docs/preview.gif)
 
 ## Getting started
 
@@ -12,7 +12,7 @@ On Windows, open the downloaded executable. On macOS 11 or later, unzip the arch
 
 Type `xiaoyu` in a text field. The last `u` makes the cat hug a fish and show 小鱼, even if you later choose the homophone 小雨. The English trigger `fish` also works. Drag the cat to move it. Right-click it or use the tray or menu bar icon to open the wardrobe (装扮工作室), pause keyboard interaction (暂停键鼠互动), or get help (帮助与反馈). The application menus are in Chinese. Choose from seven public breeds and coat types, including British Shorthair, Ragdoll and Siamese. Type `jinitaimei` or `jntm` for a basketball dribble, crossover and shoulder dance. Choose 锁定桌宠（点击穿透） to send clicks and scrolls through the cat. Only the small lock button at its upper right unlocks it.
 
-All twelve tricks also accept simplified or traditional Chinese in supported editors, including pasted words. A spelling and its matching Chinese word play once per entry, and a new entry can play again immediately. Try `mxbctmm` or 蜜雪冰城甜蜜蜜 for the ice cream dance. On Mac, enable Accessibility from the word tricks menu to match committed text.
+All twelve tricks also accept simplified or traditional Chinese in supported editors, including pasted words. A spelling and its matching Chinese word play once per entry, and a new entry can play again immediately. Try `yijiansanlian` for three airborne paw presses, `tiaowu` for a step-touch, or `mxbctmm` for the ice cream dance. On Mac, enable Accessibility from the word tricks menu to match committed text.
 
 Matching stays on the device. In ordinary editable fields PawPaw checks at most eight characters before the caret against its vocabulary. It does not access the clipboard or keep typing history. In secure fields the cat covers its eyes and clears its input animations.
 
