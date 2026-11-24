@@ -65,8 +65,11 @@ int main(void) {
     kc_reset(&m);kc_key(&m,3,1,0,'F',false,false,false,false,0);kc_key(&m,3,1,0,'F',true,false,false,false,.01);assert(kc_reach(&m.paw[0],.078)>.99);
     kc_mouse(&m,2,true,1);assert(m.mouseButtons==4 && m.mouseSide==2);kc_mouse(&m,2,false,1.1);assert(m.mouseButtons==0);
     kc_play(&m,2,2);kc_play(&m,3,2.25);kc_play(&m,4,2.5);kc_clear_input(&m);
-    kc_step(&m,4.54,.1,0,0,false);assert(m.trick==2);kc_step(&m,4.56,.1,0,0,false);assert(m.trick==4 && fabs(m.began-4.55)<.001);
-    kc_step(&m,7.26,.1,0,0,false);assert(m.trick<0);
+    double danceStart=2+durations[2], danceEnd=danceStart+durations[4];
+    kc_step(&m,danceStart-.01,.1,0,0,false);assert(m.trick==2);
+    kc_step(&m,danceStart+.01,.1,0,0,false);assert(m.trick==4 && fabs(m.began-danceStart)<.001);
+    kc_step(&m,danceEnd-.01,.1,0,0,false);assert(m.trick==4);
+    kc_step(&m,danceEnd+.01,.1,0,0,false);assert(m.trick<0);
     m.wordsEnabled=false;type(&m,"dance",10);assert(m.trick<0);
     m.wordsEnabled=true;kc_play(&m,2,14);kc_play(&m,4,14.2);kc_privacy(&m,true,14.25);
     type(&m,"dance",14.3);assert(kc_cover(&m,15)==1 && m.trick<0 && !m.bubbleCount && m.paw[0].cap<0);
