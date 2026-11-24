@@ -1,9 +1,11 @@
 #import <AppKit/AppKit.h>
 #import "PetMotion.h"
+#import "ChineseInput.h"
 
 @interface PetArt : NSObject
 @property(nonatomic) BOOL printLook;
 @property(readonly) NSArray *tricks;
+@property(readonly) ChineseInput *chinese;
 @property(readonly) NSArray *idles;
 @property(readonly) NSDictionary *catalog;
 - (NSImage *)portraitForRole:(NSDictionary *)role size:(CGFloat)size;

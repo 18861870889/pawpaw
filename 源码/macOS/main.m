@@ -5,6 +5,7 @@
 #import "PressStudio.h"
 #import <math.h>
 #import <Carbon/Carbon.h>
+#import <ApplicationServices/ApplicationServices.h>
 #import <QuartzCore/QuartzCore.h>
 
 static double Now(void) {return NSProcessInfo.processInfo.systemUptime;}
@@ -110,7 +111,9 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     CFRunLoopSourceRef _source;
     NSPoint _priorMouse;
     double _previousTick,_lastRender,_nextPermissionCheck,_lastInput;
-    int _size,_menuDepth;
+    int _size,_menuDepth,_chineseTicket,_expectedChinese;
+    double _checkChineseAt;
+    BOOL _chineseSource,_checkingChinese;
     BOOL _paused,_allowed,_updateMenuAfterTracking;
 }
 - (void)positionUnlock {
@@ -178,6 +181,9 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     }
     for(int i=0;i<KC_IDLE_COUNT;i++) durations[KC_WORDS+i]=[self.art.idles[i][1] doubleValue];
     kc_init(&_motion,aliases,durations);
+    [[NSDistributedNotificationCenter defaultCenter] addObserver:self selector:@selector(inputSourceChanged:)
+        name:(__bridge NSString *)kTISNotifySelectedKeyboardInputSourceChanged object:nil];
+    [self inputSourceChanged:nil];
     _motion.wordsEnabled=[_prefs boolForKey:@"words"];_motion.labels=[_prefs boolForKey:@"labels"];_paused=[_prefs boolForKey:@"paused"];
     NSRect r=NSMakeRect(0,0,round(320*scales[_size]),round(260*scales[_size]));
     self.pet=[[PetPanel alloc] initWithContentRect:r styleMask:NSWindowStyleMaskBorderless|NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
@@ -237,7 +243,47 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     if(closet.visible) [closet setFrame:[closet constrainFrameRect:closet.frame toScreen:screenAt(closet.frame.origin)] display:YES];
     if(_transparencyPanel.visible) [_transparencyPanel setFrame:[_transparencyPanel constrainFrameRect:_transparencyPanel.frame toScreen:screenAt(_transparencyPanel.frame.origin)] display:YES];
 }
-- (void)breakInput {kc_clear_input(&_motion);_priorMouse=NSEvent.mouseLocation;}
+- (void)privacy:(BOOL)secure time:(double)t {
+    if(secure!=_motion.privateInput) [self clearChinese];
+    kc_privacy(&_motion,secure,t);
+}
+- (void)clearChinese {
+    [self.art.chinese clear]; _chineseTicket++; _checkChineseAt=INFINITY;
+}
+- (void)inputSourceChanged:(NSNotification *)note {
+    _chineseSource=NO;
+    TISInputSourceRef source=TISCopyCurrentKeyboardInputSource();
+    if(source) {
+        NSArray *languages=(__bridge NSArray *)TISGetInputSourceProperty(source,kTISPropertyInputSourceLanguages);
+        for(NSString *language in languages) {
+            if([language isEqualToString:@"zh"] || [language hasPrefix:@"zh-"] || [language hasPrefix:@"zh_"]) {_chineseSource=YES;break;}
+        }
+        CFRelease(source);
+    }
+    [self clearChinese];kc_break(&_motion);
+}
+- (void)scheduleChinese:(int)expected time:(double)t {
+    _expectedChinese=expected; _checkChineseAt=t+.075; _chineseTicket++;
+}
+- (void)checkChinese:(double)t {
+    _checkChineseAt=INFINITY;
+    if(!_chineseSource || !_motion.wordsEnabled || _motion.privateInput || _motion.gameActive) return;
+    int ticket=_chineseTicket, expected=_expectedChinese;
+    pid_t pid=NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
+    ChineseInput *words=self.art.chinese;
+    _checkingChinese=YES;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY,0),^{
+        int match=[words atCaretOf:pid fallback:expected];
+        dispatch_async(dispatch_get_main_queue(),^{
+            self->_checkingChinese=NO;
+            if(match<0 || ticket!=self->_chineseTicket || !self->_chineseSource || self->_paused || self->_menuDepth ||
+               Now()-t>1.5 || self->_view.dragging || (NSApp.active && NSApp.keyWindow) || NSApp.modalWindow ||
+               NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier!=pid || IsSecureEventInputEnabled()) return;
+            kc_chinese_match(&self->_motion,match,Now());
+        });
+    });
+}
+- (void)breakInput {[self clearChinese];kc_clear_input(&_motion);_priorMouse=NSEvent.mouseLocation;}
 - (void)focusChanged:(NSNotification *)n {
     [self breakInput];
     NSRunningApplication *front=NSWorkspace.sharedWorkspace.frontmostApplication;
@@ -278,8 +324,8 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
 - (void)input:(CGEventType)type event:(CGEventRef)e {
     if(_paused || _menuDepth || _view.dragging || (NSApp.active && NSApp.keyWindow) || NSApp.modalWindow) return;
     double t=Now();
-    kc_privacy(&_motion,IsSecureEventInputEnabled(),t);
-    if(_motion.privateInput) return;
+    [self privacy:IsSecureEventInputEnabled() time:t];
+    if(_motion.privateInput) {[self clearChinese];return;}
     if(type==kCGEventKeyDown || type==kCGEventKeyUp || type==kCGEventFlagsChanged) {
         int hw=(int)CGEventGetIntegerValueField(e,kCGKeyboardEventKeycode);
         CGEventFlags flags=CGEventGetFlags(e);
@@ -289,18 +335,48 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
         int cap=entry?[entry[0] intValue]:-1, hand=cap>=0?[self.art.keys[cap][3] intValue]:0;
         BOOL shortcut=(flags&(kCGEventFlagMaskCommand|kCGEventFlagMaskControl|kCGEventFlagMaskAlternate))!=0;
         int letter=entry?[entry[2] intValue]:0;
-        if(type==kCGEventKeyDown && !shortcut && _motion.wordsEnabled) {
-            UniChar chars[2]={0}; UniCharCount count=0;
-            CGEventKeyboardGetUnicodeString(e,2,&count,chars);
-            letter=kc_event_letter(letter,chars[0],(unsigned)count);
-        }
         bool shift=hw==56 || hw==60 || hw==57;
         bool repeat=type==kCGEventKeyDown && CGEventGetIntegerValueField(e,kCGKeyboardEventAutorepeat)!=0;
+        if(type!=kCGEventKeyUp && _motion.wordsEnabled && (shortcut || type==kCGEventFlagsChanged)) [self clearChinese];
+        if(type==kCGEventKeyDown && !shortcut && _motion.wordsEnabled && !repeat) {
+            UniChar chars[64]={0}; UniCharCount count=0;
+            CGEventKeyboardGetUnicodeString(e,64,&count,chars);
+            letter=kc_event_letter(letter,chars[0],(unsigned)count);
+            BOOL han=NO;
+            for(UniCharCount i=0;i<MIN(count,64);i++) if(chars[i]>=0x3400 && chars[i]<=0x9fff) {han=YES;break;}
+            if(han && !_motion.gameActive) {
+                _chineseTicket++;_checkChineseAt=INFINITY;[self.art.chinese discardSpelling];
+                for(UniCharCount i=0;i<MIN(count,64);i++)
+                    kc_chinese_match(&_motion,[self.art.chinese committedCharacter:chars[i] time:t],t);
+                letter=0;
+            } else if(_chineseSource && !_motion.gameActive) {
+                NSString *legend=entry[1];
+                BOOL punctuation=hw==43 || hw==47 || hw==41 || hw==44 || hw==42;
+                BOOL digit=legend.length==1 && [legend characterAtIndex:0]>='1' && [legend characterAtIndex:0]<='9';
+                if(letter>='A' && letter<='Z') {
+                    if([self.art.chinese letter:letter time:t]) letter=0;
+                } else if(hw==49 || hw==36 || hw==76 || punctuation || digit || (count==1 && chars[0]>='1' && chars[0]<='9')) {
+                    int expected=-1;
+                    if([self.art.chinese selectAt:t expected:&expected]) [self scheduleChinese:(hw==36 || hw==76 || punctuation?-1:expected) time:t];
+                } else if(hw==51) {
+                    _chineseTicket++;_checkChineseAt=INFINITY;[self.art.chinese editAt:t];
+                } else if(hw!=39) [self clearChinese];
+            }
+        }
         kc_key(&_motion,hw,cap,hand,letter,up,repeat,shortcut,shift,t);
     } else if(type==kCGEventScrollWheel) {
-        kc_interrupt_idle(&_motion,t);kc_break(&_motion);_motion.lastClick=_motion.lastMove=t;_motion.mouseSide=2;
+        [self clearChinese];kc_interrupt_idle(&_motion,t);kc_break(&_motion);_motion.lastClick=_motion.lastMove=t;_motion.mouseSide=2;
     } else {
         bool pressed=type==kCGEventLeftMouseDown || type==kCGEventRightMouseDown || type==kCGEventOtherMouseDown;
+        if(pressed) {
+            int ignored=-1;
+            pid_t target=(pid_t)CGEventGetIntegerValueField(e,kCGEventTargetUnixProcessID);
+            NSString *bundle=(target>0 && _chineseSource)?[NSRunningApplication runningApplicationWithProcessIdentifier:target].bundleIdentifier.lowercaseString:nil;
+            BOOL candidate=bundle && ([bundle containsString:@".inputmethod."] || [bundle containsString:@"imklaunchagent"]);
+            if(type==kCGEventLeftMouseDown && candidate && [self.art.chinese selectAt:t expected:&ignored])
+                [self scheduleChinese:-1 time:t];
+            else [self clearChinese];
+        }
         kc_mouse(&_motion,(int)CGEventGetIntegerValueField(e,kCGMouseEventButtonNumber),pressed,t);
     }
     _lastInput=t;
@@ -313,8 +389,9 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     NSRect r=self.pet.frame;
     double x=(global.x-NSMinX(r))*320/r.size.width,y=(NSMaxY(r)-global.y)*260/r.size.height;
     BOOL follow=!_paused && !_view.dragging && !_menuDepth && !(NSApp.active && NSApp.keyWindow) && !NSApp.modalWindow;
-    kc_privacy(&_motion,!_paused && IsSecureEventInputEnabled(),t);
+    [self privacy:(!_paused && IsSecureEventInputEnabled()) time:t];
     follow=follow && !_motion.privateInput;
+    if(follow && !_checkingChinese && t>=_checkChineseAt) [self checkChinese:t];
     if(follow && !NSEqualPoints(global,_priorMouse)) {kc_interrupt_idle(&_motion,t);_motion.lastMove=t;}
     _priorMouse=global;
     kc_step(&_motion,t,dt,x-151,y-([_studio.role[@"shape"] intValue]?90:115),follow);
@@ -366,8 +443,9 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     NSMenu *tricks=[self sub:@"单词彩蛋" menu:menu];
     for(int i=0;i<KC_WORDS;i++) {
         NSArray *rule=self.art.tricks[i];
-        [self item:[NSString stringWithFormat:@"%@　 %@ / %@",rule[2],rule[0],rule[1]] menu:tricks action:@selector(play:) tag:i checked:NO];
+        [self item:[NSString stringWithFormat:@"%@　 %@ / %@ / %@",rule[2],self.art.chinese.rules[i][1],rule[0],rule[1]] menu:tricks action:@selector(play:) tag:i checked:NO];
     }
+    if(!AXIsProcessTrusted()) [self item:@"中文选词辅助权限…" menu:tricks action:@selector(chinesePermission:) tag:0 checked:NO];
     [tricks addItem:NSMenuItem.separatorItem];[self item:@"打字触发彩蛋" menu:tricks action:@selector(toggleWords:) tag:0 checked:_motion.wordsEnabled];
     NSMenu *sizes=[self sub:@"桌宠大小" menu:menu];
     for(int i=0;i<3;i++) [self item:@[@"小",@"标准",@"大"][i] menu:sizes action:@selector(resizePet:) tag:i checked:_size==i];
@@ -393,7 +471,10 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
         dispatch_async(dispatch_get_main_queue(),^{[self refreshStatus];});
 }
 - (void)play:(NSMenuItem *)sender {kc_play(&_motion,(int)sender.tag,Now());}
-- (void)toggleWords:(id)sender {_motion.wordsEnabled=!_motion.wordsEnabled;kc_break(&_motion);[_prefs setBool:_motion.wordsEnabled forKey:@"words"];[self refreshStatus];}
+- (void)chinesePermission:(id)sender {
+    AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)@{(__bridge NSString *)kAXTrustedCheckOptionPrompt:@YES});
+}
+- (void)toggleWords:(id)sender {[self clearChinese];_motion.wordsEnabled=!_motion.wordsEnabled;kc_break(&_motion);[_prefs setBool:_motion.wordsEnabled forKey:@"words"];[self refreshStatus];}
 - (void)toggleLabels:(id)sender {_motion.labels=!_motion.labels;kc_clear_bubbles(&_motion);[_prefs setBool:_motion.labels forKey:@"labels"];[self refreshStatus];}
 - (void)togglePause:(id)sender {_paused=!_paused;[_prefs setBool:_paused forKey:@"paused"];kc_reset(&_motion);[self updatePermission];[self refreshStatus];}
 - (void)showHelp:(id)sender {
@@ -402,7 +483,7 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     NSString *version=[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
     NSAlert *help=[NSAlert new];
     help.messageText=[NSString stringWithFormat:@"爪爪 PawPaw %@",version];
-    help.informativeText=[NSString stringWithFormat:@"键鼠互动　%@\n\n拖动猫咪可移动位置，右键或点菜单栏的猫打开装扮工作室。连续敲 fish 看猫咪抱鱼，双击猫咪看它捧心。锁定后点击可穿过猫咪，点右上角的小锁解锁。\n\n跨应用打字需要「输入监控」权限。你可以随时在桌宠菜单暂停互动。",state];
+    help.informativeText=[NSString stringWithFormat:@"键鼠互动　%@\n\n拖动猫咪可移动位置，右键或点菜单栏的猫打开装扮工作室。输入「小鱼」并选词，看猫咪抱鱼，也可以连续敲 fish，双击猫咪看它捧心。锁定后点击可穿过猫咪，点右上角的小锁解锁。\n\n跨应用打字需要「输入监控」权限。你可以随时在桌宠菜单暂停互动。",state];
     [help addButtonWithTitle:@"好"];
     [NSApp activateIgnoringOtherApps:YES]; [help runModal];
     [self breakInput];
@@ -521,6 +602,7 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
 }
 - (void)applicationWillTerminate:(NSNotification *)note {
     [_unlockPanel orderOut:nil];[_timer invalidate];[self stopTap];[self savePosition];
+    [[NSDistributedNotificationCenter defaultCenter] removeObserver:self];
     [NSNotificationCenter.defaultCenter removeObserver:self];[NSWorkspace.sharedWorkspace.notificationCenter removeObserver:self];
     if(_status) [NSStatusBar.systemStatusBar removeStatusItem:_status];
 }

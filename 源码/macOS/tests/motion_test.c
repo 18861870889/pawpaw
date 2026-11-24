@@ -81,6 +81,10 @@ int main(void) {
     kc_privacy(&m,false,78);kc_idle(&m,78,0,false,false);kc_idle(&m,91,13,false,false);assert(m.trick<0);
     kc_init(&m,words,durations);kc_idle(&m,0,0,true,true);kc_idle(&m,12,12,true,true);assert(m.trick==KC_WORDS+1);
     kc_mouse(&m,0,true,12.2);assert(m.trick<0);
-    puts("Mac: 16 aliases, 3 idle performances, timing, interrupt, privacy, repeat and queue checks passed.");
+    kc_reset(&m);kc_chinese_match(&m,17,1);assert(m.trick==8 && m.wordBubble==KC_ALIASES+17);
+    kc_privacy(&m,true,2);kc_chinese_match(&m,4,2.1);assert(m.trick<0 && m.wordBubble<0);
+    kc_privacy(&m,false,3);m.wordsEnabled=false;kc_chinese_match(&m,4,3);assert(m.trick<0);
+    m.wordsEnabled=true;m.labels=false;kc_chinese_match(&m,4,3.2);assert(m.trick==2 && m.wordBubble<0);
+    puts("Mac: all Latin aliases, Chinese confirmations, privacy, repeats, timing and idle actions passed.");
     return 0;
 }

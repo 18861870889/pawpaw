@@ -18,13 +18,13 @@ xcrun lipo "$exe" -verify_arch arm64 x86_64
 cd "$src"
 xcrun clang -O2 -Wall -Wextra -I. tests/motion_test.c PetMotion.c -o "$tmp/motion"
 "$tmp/motion"
-xcrun clang -fobjc-arc -O2 -I. tests/render_smoke.m PetArt.m PetMotion.c PrintArt.c \
-    -framework Cocoa -framework CoreGraphics -framework CoreText -framework ImageIO -o "$tmp/render"
+xcrun clang -fobjc-arc -O2 -I. tests/render_smoke.m ChineseInput.m PetArt.m PetMotion.c PrintArt.c \
+    -framework ApplicationServices -framework Carbon -framework Cocoa -framework CoreGraphics -framework CoreText -framework ImageIO -o "$tmp/render"
 "$tmp/render" "$app"
 # The hosted runner has an independent preferences domain and graphical session.
 if [ "${GITHUB_ACTIONS:-}" = true ]; then
-    xcrun clang -fobjc-arc -O2 -I. tests/lock_smoke.m PetStudio.m PressStudio.m PetArt.m PetMotion.c PrintArt.c \
-        -framework Carbon -framework Cocoa -framework QuartzCore -framework CoreGraphics -framework CoreText -framework ImageIO -o "$tmp/lock"
+    xcrun clang -fobjc-arc -O2 -I. tests/lock_smoke.m ChineseInput.m PetStudio.m PressStudio.m PetArt.m PetMotion.c PrintArt.c \
+        -framework ApplicationServices -framework Carbon -framework Cocoa -framework QuartzCore -framework CoreGraphics -framework CoreText -framework ImageIO -o "$tmp/lock"
     "$tmp/lock"
     "$exe" -paused YES -permissionAsked YES -locked YES &
     pet=$!

@@ -57,6 +57,11 @@ void kc_play(KCMotion *m,int trick,double now) {
     if(m->trick>=0) m->pending=trick;
     else {m->trick=trick; m->began=now;}
 }
+void kc_chinese_match(KCMotion *m,int match,double t) {
+    if(!m->wordsEnabled || m->privateInput || match<0 || match>=KC_WORDS*2) return;
+    kc_play(m,match/2,t);
+    if(m->labels) {m->wordBubble=KC_ALIASES+match;m->wordBegan=t;m->bubbleCount=0;}
+}
 int kc_event_letter(int physicalLetter,uint16_t character,unsigned count) {
     if(count==1) {
         if(character>='a' && character<='z') return character-'a'+'A';

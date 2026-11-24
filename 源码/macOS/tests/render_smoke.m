@@ -15,7 +15,26 @@ int main(int argc,const char **argv) {
         assert(argc==2);
         NSBundle *bundle=[NSBundle bundleWithPath:[NSString stringWithUTF8String:argv[1]]];
         PetArt *art=[[PetArt alloc] initWithBundle:bundle];
-        assert(art && art.tricks.count==KC_WORDS);
+        assert(art && art.tricks.count==KC_WORDS && art.chinese.rules.count==KC_WORDS);
+        for(int i=0;i<KC_WORDS;i++) for(int script=1;script<=2;script++) {
+            NSString *word=art.chinese.rules[i][script];
+            int hit=[art.chinese matchSuffix:[@"今天" stringByAppendingString:word]];
+            assert(hit/2==i && [[art.chinese wordForMatch:hit] isEqual:word]);
+            [art.chinese clear];
+            for(NSUInteger c=0;c<word.length;c++) hit=[art.chinese committedCharacter:[word characterAtIndex:c] time:1+c*.1];
+            assert(hit>=0 && hit/2==i);
+        }
+        assert([art.chinese matchSuffix:@"在下小雨"]==-1);
+        assert([[art.chinese wordForMatch:[art.chinese matchSuffix:@"敬自己一杯。"]] isEqual:@"敬自己一杯"]);
+        [art.chinese clear];
+        int expected=-1;
+        for(NSString *part in @[@"JING",@"ZIJI",@"YIBEI"]) {
+            BOOL complete=NO;
+            for(NSUInteger c=0;c<part.length;c++) complete=[art.chinese letter:[part characterAtIndex:c] time:2];
+            assert(complete==[part isEqual:@"YIBEI"]);
+            assert([art.chinese selectAt:2 expected:&expected]);
+        }
+        assert(expected==12 && ![art.chinese selectAt:2 expected:&expected]);
         const char *aliases[KC_ALIASES]; double durations[KC_ACTIONS];
         for(int i=0;i<KC_WORDS;i++){
             aliases[i*2]=[art.tricks[i][0] UTF8String];aliases[i*2+1]=[art.tricks[i][1] UTF8String];
@@ -40,6 +59,8 @@ int main(int argc,const char **argv) {
             kc_clear_bubbles(&m);
             NSData *withoutWord=pixels(art,role,&m,1.65);
             assert(withWord.length && ![withWord isEqual:withoutWord]);
+            kc_chinese_match(&m,5,1.66);
+            assert(m.wordBubble==KC_ALIASES+5 && ![pixels(art,role,&m,1.7) isEqual:withoutWord]);
             KCMotion dance;kc_init(&dance,aliases,durations);
             kc_play(&dance,KC_WORDS-1,1.0);
             NSData *dribble=pixels(art,role,&dance,1.35);

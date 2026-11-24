@@ -150,7 +150,20 @@ namespace KeyboardCat
         public static PointF Mix(PointF a, PointF b, float t)
         { return new PointF(Mix(a.X, b.X, t), Mix(a.Y, b.Y, t)); }
 
-        public void KeyEvent(int vk, bool release, double now, bool showLabels, bool systemShortcut=false)
+        public bool KeyHeld(int key) {return key>=0 && key<down.Length && down[key];}
+
+        public void ChineseMatch(string text,double now,bool showLabels)
+        {
+            ChineseWord word=ChineseWord.Named(text);
+            if(Private || !Tricks.Enabled || word==null) return;
+            Tricks.Play(word.Trick,now);
+            if(showLabels) {
+                Bubbles.Clear();
+                MatchedWord=new KeyBubble {Label=text,Start=now,IsWord=true};
+            }
+        }
+
+        public void KeyEvent(int vk, bool release, double now, bool showLabels, bool systemShortcut=false,bool deferWord=false)
         {
             if (Private || vk < 0 || vk >= down.Length) return;
             Tricks.InterruptIdle(now);
@@ -167,7 +180,8 @@ namespace KeyboardCat
             {
                 bool shortcut=systemShortcut || down[0x11] || down[0x12] || down[0x5b] || down[0x5c] ||
                     down[0xa2] || down[0xa3] || down[0xa4] || down[0xa5];
-                matched=Tricks.Observe(vk,now,shortcut);
+                if(deferWord) Tricks.BreakSequence();
+                else matched=Tricks.Observe(vk,now,shortcut);
             }
             KeyHit hit = Keyboard.Find(vk);
             if (hit == null) return;

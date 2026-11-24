@@ -43,6 +43,12 @@ namespace KeyboardCat
         PointF grab;
         bool loaded, listening, pressing, dragging, placing, disposed;
         PasswordFocus focusProbe;
+        readonly ChineseSequence chinese=new ChineseSequence();
+        bool usingChinese,checkingChinese;
+        IntPtr chineseChild;
+        int chineseGeneration;
+        double checkChineseAt=double.PositiveInfinity;
+        ChineseWord expectedChinese;
         double nextFocusCheck;
         bool waitForKeyRelease;
         FieldPrivacy inputMode;
@@ -151,8 +157,8 @@ namespace KeyboardCat
             {
                 WordTrick trick=entry;
                 ToolStripMenuItem item=new ToolStripMenuItem(trick.Label);
-                item.ShortcutKeyDisplayString=trick.Word+" / "+trick.Pinyin;
-                item.ToolTipText="连续敲出任一组字母，或点击试演";
+                item.ShortcutKeyDisplayString=ChineseWord.For(trick).Simplified+" / "+trick.Word+" / "+trick.Pinyin;
+                item.ToolTipText="输入中文并选词，连续敲英文或拼音，也可以点击试演";
                 item.Click+=delegate { BeginInvoke((MethodInvoker)delegate { PlayTrick(trick); }); };
                 trickMenu.DropDownItems.Add(item);
             }
@@ -161,6 +167,7 @@ namespace KeyboardCat
             wordTriggers.Click+=delegate
             {
                 settings.WordTriggers=!settings.WordTriggers;
+                ClearChinese();
                 motion.Tricks.Enabled=settings.WordTriggers;
                 wordTriggers.Checked=settings.WordTriggers;
                 Save();
@@ -191,23 +198,23 @@ namespace KeyboardCat
                 ((ToolStripMenuItem)looks.DropDownItems[1]).Checked=!settings.PrintLook;
                 labels.Checked=settings.Labels;
                 pause.Text=settings.Paused?"恢复键鼠互动":"暂停键鼠互动";
-                motion.ClearInput();
+                ClearChinese(); motion.ClearInput();
             };
-            actions.Closed+=delegate { motion.ClearInput(); priorCursor=Cursor.Position; };
+            actions.Closed+=delegate { ClearChinese(); motion.ClearInput(); priorCursor=Cursor.Position; };
         }
 
         void ShowHelp()
         {
             if(showingHelp || disposed) return;
-            showingHelp=true; motion.ClearInput();
+            showingHelp=true; ClearChinese(); motion.ClearInput();
             string state=settings.Paused?"已暂停":listening?"已连接":"连接中，会自动重试";
             try {
                 MessageBox.Show(this,"键鼠互动　"+state+"\n\n"+
                     "拖动猫咪可移动位置，右键打开菜单，进入装扮工作室可以换猫、换衣服和桌搭。\n\n"+
-                    "连续敲 fish 看猫咪抱鱼，双击猫咪看它捧心。右键可锁定桌宠，点击会穿过猫咪。点右上角的小锁恢复控制。",
+                    "输入「小鱼」并选词，看猫咪抱鱼，也可以连续敲 fish，双击猫咪看它捧心。右键可锁定桌宠，点击会穿过猫咪。点右上角的小锁恢复控制。",
                     Program.DisplayName+" "+Program.Version,MessageBoxButtons.OK,MessageBoxIcon.Information);
             }
-            finally { showingHelp=false; motion.ClearInput(); }
+            finally { showingHelp=false; ClearChinese(); motion.ClearInput(); }
         }
 
         void PlayTrick(WordTrick trick)
@@ -231,7 +238,7 @@ namespace KeyboardCat
             if(wardrobe==null || wardrobe.IsDisposed)
             {
                 wardrobe=new WardrobeForm(settings,motion,delegate { return rendered==null?null:rendered.Image; },SelectCat,Wear,SetDesk,ChangeRole,SetLook,PlayTrick);
-                wardrobe.Activated+=delegate { motion.ClearInput(); };
+                wardrobe.Activated+=delegate { ClearChinese(); motion.ClearInput(); };
                 wardrobe.FormClosed+=delegate { wardrobe=null; ReleaseStudioSurface(); };
             }
             ShowSettingsPanel(wardrobe);
@@ -249,7 +256,7 @@ namespace KeyboardCat
                     saveOpacityAt=Now+.35;
                     if(surface!=null) surface.Present(Handle,Location,percent);
                 });
-                opacityPanel.Activated+=delegate { motion.ClearInput(); };
+                opacityPanel.Activated+=delegate { ClearChinese(); motion.ClearInput(); };
                 opacityPanel.FormClosed+=delegate { opacityPanel=null; };
             }
             ShowSettingsPanel(opacityPanel);
@@ -373,7 +380,7 @@ namespace KeyboardCat
                 return;
             }
             // Pausing stops routing input even if Windows already removed the registration.
-            motion.Reset(); priorCursor=Cursor.Position;
+            ClearChinese(); motion.Reset(); priorCursor=Cursor.Position;
             retryInputAt=double.PositiveInfinity; retryInputDelay=2;
             listening=enable;waitForKeyRelease=false;inputMode=FieldPrivacy.Unknown;
             inputWindow=protectedWindow=IntPtr.Zero;
@@ -462,6 +469,7 @@ namespace KeyboardCat
                 PointF eyes=settings.Cat.EyeCenter;
                 motion.Step(now,elapsed,(p.X-Left)/scale-eyes.X,(p.Y-Top)/scale-eyes.Y,inputMode==FieldPrivacy.GameSurface);
             }
+            if(now>=checkChineseAt && !checkingChinese) CheckChinese(now);
             bool allowIdle=!motion.Private && !pressing && !dragging && !actions.Visible && !SettingsFocused &&
                 !motion.MouseHeld && motion.Left.Key==null && motion.Right.Key==null;
             // Received input already restarts the clock; some desktops generate unrelated activity continuously.
@@ -523,7 +531,7 @@ namespace KeyboardCat
             {
                 Size threshold=SystemInformation.DragSize;
                 if(Math.Abs(p.X-dragStart.X)<=threshold.Width/2 && Math.Abs(p.Y-dragStart.Y)<=threshold.Height/2) return;
-                dragging=true; motion.ClearInput();
+                dragging=true; ClearChinese(); motion.ClearInput();
             }
             Screen screen=Screen.FromPoint(p);
             if(dragScreen!=screen.DeviceName) {dragScreen=screen.DeviceName;dragScale=ScaleOn(screen);}
@@ -561,7 +569,10 @@ namespace KeyboardCat
 
         void ApplyPrivacy(FieldPrivacy status,double now,IntPtr foreground)
         {
-            if(status!=inputMode || foreground!=inputWindow) motion.ClearInput();
+            IntPtr child=usingChinese?PasswordFocus.FocusedChild(foreground):IntPtr.Zero;
+            if(status!=inputMode || foreground!=inputWindow || (usingChinese && child!=chineseChild)) {
+                ClearChinese(); motion.ClearInput();
+            }
             inputMode=status;inputWindow=foreground;
             if(status==FieldPrivacy.Unknown) return;
             bool unconfirmedField=status==FieldPrivacy.ActivityOnly || status==FieldPrivacy.WeChatMain;
@@ -570,6 +581,70 @@ namespace KeyboardCat
             if(motion.Private && !secure) waitForKeyRelease=Native.AnyKeyboardKeyHeld();
             protectedWindow=secure?foreground:IntPtr.Zero;
             motion.SetPrivacy(secure,now);
+        }
+
+        void ClearChinese()
+        {
+            chinese.Clear(); usingChinese=false; chineseChild=IntPtr.Zero; chineseGeneration++;
+            checkChineseAt=double.PositiveInfinity; expectedChinese=null;
+        }
+
+        void ScheduleChinese(ChineseWord expected,double now)
+        {
+            expectedChinese=expected; checkChineseAt=now+.075; chineseGeneration++;
+        }
+
+        bool CanCheckChinese()
+        {
+            return listening && !disposed && !settings.Paused && motion.Tricks.Enabled && !motion.Private &&
+                !dragging && !actions.Visible && !SettingsFocused && !waitForKeyRelease &&
+                (inputMode==FieldPrivacy.Ordinary || inputMode==FieldPrivacy.WeChatMain);
+        }
+
+        void CheckChinese(double now)
+        {
+            checkChineseAt=double.PositiveInfinity;
+            if(!CanCheckChinese() || !usingChinese) return;
+            IntPtr window=inputWindow,child=chineseChild;
+            int ticket=chineseGeneration;
+            ChineseWord expected=expectedChinese;
+            checkingChinese=true;
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate {
+                string hit=ChineseInput.AtCaret(window,child,expected);
+                try {
+                    BeginInvoke((MethodInvoker)delegate {
+                        checkingChinese=false;
+                        if(hit==null || ticket!=chineseGeneration || Now-now>1.5 || !CanCheckChinese() ||
+                           window!=Native.GetForegroundWindow() || child!=PasswordFocus.FocusedChild(window) ||
+                           !ChineseInput.IsChinese(window)) return;
+                        RefreshPrivacy(true,Now);
+                        if(ticket==chineseGeneration && CanCheckChinese()) motion.ChineseMatch(hit,Now,settings.Labels);
+                    });
+                } catch(InvalidOperationException) {}
+            });
+        }
+
+        bool ObserveChineseKey(int key,bool shortcut,double now)
+        {
+            bool enabled=motion.Tricks.Enabled && inputMode!=FieldPrivacy.GameSurface && ChineseInput.IsChinese(inputWindow);
+            if(enabled!=usingChinese) {
+                ClearChinese(); motion.Tricks.BreakSequence();
+                usingChinese=enabled;
+                if(enabled) chineseChild=PasswordFocus.FocusedChild(inputWindow);
+            }
+            if(!enabled) return false;
+            if(!shortcut && key>='A' && key<='Z') return chinese.Letter(key,now);
+            bool number=(key>='1' && key<='9') || (key>=0x61 && key<=0x69);
+            bool punctuation=key==0xbc || key==0xbe || key==0xba || key==0xbf || key==0xdc;
+            if(!shortcut && (number || key==0x20 || key==0x0d || punctuation)) {
+                ChineseWord expected;
+                if(chinese.Select(now,out expected)) ScheduleChinese(key==0x0d || punctuation?null:expected,now);
+            } else if(!shortcut && key==0x08) {
+                chineseGeneration++;checkChineseAt=double.PositiveInfinity;chinese.Edit(now);
+            } else if(shortcut || key!=0xde) {
+                ClearChinese();
+            }
+            return false;
         }
 
         bool HandleKey(Native.RawPayload data,double now)
@@ -587,8 +662,9 @@ namespace KeyboardCat
             }
             int key=Native.KeyCode(data);
             if(!release && motion.Tricks.Enabled) motion.Tricks.SetForeground(inputWindow);
-            bool shortcut=!release && motion.Tricks.Enabled && key>='A' && key<='Z' && Native.ShortcutHeld();
-            motion.KeyEvent(key,release,now,settings.Labels,shortcut);
+            bool shortcut=!release && motion.Tricks.Enabled && Native.ShortcutHeld();
+            bool defer=!release && !motion.KeyHeld(key) && ObserveChineseKey(key,shortcut,now);
+            motion.KeyEvent(key,release,now,settings.Labels,shortcut,defer);
             return true;
         }
 
@@ -600,6 +676,11 @@ namespace KeyboardCat
                 if(!HandleKey(packet.Data,now)) return;
             } else {
                 if(packet.Data.MouseButtons==0) return;
+                if((packet.Data.MouseButtons&1)!=0 && usingChinese && ChineseInput.OnCandidateWindow()) {
+                    ChineseWord ignored;
+                    if(chinese.Select(now,out ignored)) ScheduleChinese(null,now);
+                    else ClearChinese();
+                } else if((packet.Data.MouseButtons&~2)!=0) ClearChinese();
                 motion.MouseButtons(packet.Data.MouseButtons,now);
             }
             lastInput=now;

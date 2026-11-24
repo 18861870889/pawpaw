@@ -26,6 +26,7 @@ void kc_clear_bubbles(KCMotion *m);
 void kc_clear_input(KCMotion *m);
 void kc_reset(KCMotion *m);
 void kc_play(KCMotion *m,int trick,double now);
+void kc_chinese_match(KCMotion *m,int match,double now);
 int kc_event_letter(int physicalLetter,uint16_t character,unsigned count);
 void kc_key(KCMotion *m,int hardware,int cap,int hand,int letter,bool release,bool repeat,bool shortcut,bool shiftOnly,double now);
 void kc_mouse(KCMotion *m,int button,bool pressed,double now);

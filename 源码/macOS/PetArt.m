@@ -64,6 +64,8 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
     _printInks=[NSData dataWithContentsOfURL:[bundle URLForResource:@"PrintInks" withExtension:@"rgb"]];
     if(_printInks.length!=32768*6) return nil;
     _catalog=m[@"catalog"]; _sprites=m[@"sprites"]; _clips=m[@"clips"]; _tricks=m[@"tricks"]; _idles=m[@"idles"]; _keymap=m[@"keymap"]; _keys=m[@"keys"];
+    _chinese=[[ChineseInput alloc] initWithBundle:bundle tricks:_tricks];
+    if(!_chinese) return nil;
     _textures=[NSCache new]; _textures.totalCostLimit=48u*1024*1024;
     CGColorSpaceRef rgb=CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
     _ctx=CGBitmapContextCreate(NULL,pixelWidth,pixelHeight,8,pixelWidth*4,rgb,kCGImageAlphaPremultipliedLast|kCGBitmapByteOrder32Big);
@@ -260,8 +262,9 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
         NSArray *entry=_keymap[[NSString stringWithFormat:@"%d",b.hardware]];
         [self drawBubble:entry[1] cap:_keys[b.cap] lane:b.lane age:(t-b.start)/.72];
     }
-    if(m->wordBubble>=0 && m->wordBubble<KC_ALIASES) {
-        NSString *word=_tricks[m->wordBubble/2][m->wordBubble%2];
+    if(m->wordBubble>=0) {
+        NSString *word=m->wordBubble<KC_ALIASES?_tricks[m->wordBubble/2][m->wordBubble%2]:
+            [_chinese wordForMatch:m->wordBubble-KC_ALIASES];
         [self drawBubble:word cap:nil lane:1 age:(t-m->wordBegan)/KC_WORD_BUBBLE_SECONDS];
     }
     CGContextRestoreGState(_ctx);

@@ -85,7 +85,41 @@ try {
         }
         Assert-True ($motion.MatchedWord.Label -eq $alias.ToLowerInvariant() -and $motion.Tricks.Current($time).Kind.ToString() -eq 'Basketball') 'Both basketball aliases must trigger their own dance in chat'
     }
+    $sequenceType=$assembly.GetType('KeyboardCat.ChineseSequence')
+    $sequence=[Activator]::CreateInstance($sequenceType,$true)
+    $time=0.0
+    foreach($part in 'JING','ZIJI','YIBEI') {
+        foreach($letter in $part.ToCharArray()) {$null=$sequence.Letter([int]$letter,$time);$time+=.07}
+        $expected=$null
+        Assert-True ($sequence.Select($time,[ref]$expected)) 'Each IME segment must accept one confirmation'
+        if($part -ne 'YIBEI'){Assert-True ($null -eq $expected) 'Partial words must wait for another segment'}
+    }
+    Assert-True ($expected.Trick.Kind.ToString() -eq 'Toast') 'Split Chinese pinyin must resolve to the toast'
+    Assert-True (!$sequence.Select($time,[ref]$expected)) 'A second selection key must not replay a word'
+    foreach($alias in 'JNTM','JINITAIMEI') {
+        $sequence.Clear()
+        foreach($c in $alias.ToCharArray()) {$matched=$sequence.Letter([int]$c,$time);$time+=.05}
+        Assert-True $matched 'Wait for candidate selection at the last pinyin key'
+        Assert-True ($sequence.Select($time,[ref]$expected) -and $expected.Simplified -eq '鸡你太美') 'Full spelling and initials must accept the dance'
+    }
+    $sequence.Clear()
+    foreach($c in 'XIAO'.ToCharArray()) {$null=$sequence.Letter([int]$c,0)}
+    foreach($c in 'YU'.ToCharArray()) {$null=$sequence.Letter([int]$c,12)}
+    $null=$sequence.Select(12,[ref]$expected)
+    Assert-True ($null -eq $expected) 'Stale syllables must expire'
+    $motion.Reset()
+    $motion.ChineseMatch('小雨',1.0,$true)
+    Assert-True ($null -eq $motion.Tricks.Current(1.1)) 'The homophone must not match committed Han characters'
+    $motion.ChineseMatch('小魚',1.3,$true)
+    Assert-True ($motion.MatchedWord.Label -eq '小魚' -and $motion.Tricks.Current(1.4).Kind.ToString() -eq 'Fish') 'A traditional match must display its original script'
+    $motion.Reset();$motion.Tricks.Enabled=$false
+    $motion.ChineseMatch('硬控',1.6,$true)
+    Assert-True ($null -eq $motion.Tricks.Current(1.61)) 'Disabled words must also disable Chinese'
+    $motion.Tricks.Enabled=$true
+    $motion.ChineseMatch('鸡你太美',1.8,$false)
+    Assert-True ($null -eq $motion.MatchedWord -and $motion.Tricks.Current(1.9).Kind.ToString() -eq 'Basketball') 'Hiding labels must keep Chinese tricks enabled'
     Set-TestFocus Password 2
+    $motion.ChineseMatch('爱心',2.0,$true)
     Assert-True ($null -eq $motion.MatchedWord -and $null -eq $motion.Tricks.Current(2)) 'Password entry must clear the word bubble and active trick'
     Assert-True ($motion.Private -and $motion.Cover(2.3) -gt 0.99) 'Password fields must cover the eyes'
     Set-TestFocus ActivityOnly 2.4
@@ -97,3 +131,14 @@ try {
     if ($pet) { $pet.Dispose() }
     if (Test-Path -LiteralPath $settingsPath) { Remove-Item -LiteralPath $settingsPath }
 }
+
+$fixture=Join-Path ([IO.Path]::GetTempPath()) ('PawPaw-caret-'+[guid]::NewGuid().ToString('N')+'.exe')
+$csc=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+if(!(Test-Path $csc)) {$csc=Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe'}
+$wpf=Join-Path (Split-Path -Parent $csc) 'WPF'
+try {
+    & $csc /nologo /codepage:65001 "/lib:$wpf" /r:WindowsBase.dll,PresentationFramework.dll,PresentationCore.dll,UIAutomationClient.dll,UIAutomationTypes.dll,System.Xaml.dll "/out:$fixture" (Join-Path $PSScriptRoot '..\scripts\test-chinese-caret.cs')
+    if($LASTEXITCODE){throw 'Compiling the Chinese caret fixture failed'}
+    & $fixture $exe
+    if($LASTEXITCODE){throw 'Native Chinese input regression'}
+} finally {if(Test-Path -LiteralPath $fixture){Remove-Item -LiteralPath $fixture}}

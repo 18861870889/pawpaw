@@ -98,7 +98,7 @@ namespace KeyboardCat
             foreach(WordTrick entry in WordTrick.All) {
                 WordTrick trick=entry;
                 ToolStripMenuItem item=new ToolStripMenuItem(trick.Label);
-                item.Tag=trick;item.ShortcutKeyDisplayString=trick.Word+" / "+trick.Pinyin;
+                item.Tag=trick;item.ShortcutKeyDisplayString=ChineseWord.For(trick).Simplified+" / "+trick.Word+" / "+trick.Pinyin;
                 item.Click+=delegate {
                     selectedTrick=trick;play.Text="试演"+trick.ShortLabel;perform(trick);
                 };

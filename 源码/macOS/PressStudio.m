@@ -232,7 +232,7 @@ typedef NS_ENUM(NSInteger,PressKind) {PressTab,PressSwitch,PressQuiet,PressPlay,
     _selectedTrick=2;_trickMenu=[NSMenu new];
     for(NSInteger i=0;i<(NSInteger)art.tricks.count;i++) {
         NSArray *trick=art.tricks[i];
-        NSString *title=[NSString stringWithFormat:@"%@    %@ / %@",trick[2],trick[0],trick[1]];
+        NSString *title=[NSString stringWithFormat:@"%@    %@ / %@ / %@",trick[2],art.chinese.rules[i][1],trick[0],trick[1]];
         NSMenuItem *item=[[NSMenuItem alloc] initWithTitle:title action:@selector(selectTrick:) keyEquivalent:@""];
         item.tag=i;item.target=self;[_trickMenu addItem:item];
     }

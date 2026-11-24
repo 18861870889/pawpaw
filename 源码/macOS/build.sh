@@ -24,13 +24,14 @@ app="$tmp/PawPaw.app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 for arch in arm64 x86_64; do
     xcrun --sdk macosx clang -arch "$arch" -mmacosx-version-min=11.0 -fobjc-arc -O2 \
-        "$here/main.m" "$here/PetStudio.m" "$here/PressStudio.m" "$here/PetArt.m" "$here/PetMotion.c" "$here/PrintArt.c" \
-        -framework Carbon -framework Cocoa -framework QuartzCore -framework CoreGraphics -framework CoreText -framework ImageIO -framework CoreFoundation \
+        "$here/main.m" "$here/ChineseInput.m" "$here/PetStudio.m" "$here/PressStudio.m" "$here/PetArt.m" "$here/PetMotion.c" "$here/PrintArt.c" \
+        -framework ApplicationServices -framework Carbon -framework Cocoa -framework QuartzCore -framework CoreGraphics -framework CoreText -framework ImageIO -framework CoreFoundation \
         -o "$tmp/$arch"
 done
 xcrun lipo -create "$tmp/arm64" "$tmp/x86_64" -output "$app/Contents/MacOS/PawPaw"
 chmod 755 "$app/Contents/MacOS/PawPaw"
 cp "$here/Info.plist" "$app/Contents/Info.plist"
+cp "$here/../ChineseWords.tsv" "$app/Contents/Resources/"
 cp "$art/Artwork.bin" "$art/Artwork.json" "$app/Contents/Resources/"
 for file in AppIcon.icns PrintInks.rgb StudioCovers.png StudioItems.png StudioMark.png; do
     cp "$here/Resources/$file" "$app/Contents/Resources/$file"

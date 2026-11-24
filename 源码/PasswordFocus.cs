@@ -51,7 +51,7 @@ namespace KeyboardCat
         [DllImport("user32.dll",CharSet=CharSet.Unicode)]
         static extern IntPtr SendMessageTimeout(IntPtr window,uint message,IntPtr wParam,IntPtr lParam,uint flags,uint timeout,out UIntPtr result);
 
-        static IntPtr FocusedChild(IntPtr foreground)
+        internal static IntPtr FocusedChild(IntPtr foreground)
         {
             if(foreground==IntPtr.Zero) return IntPtr.Zero;
             GuiThreadInfo info=new GuiThreadInfo {Size=Marshal.SizeOf(typeof(GuiThreadInfo))};
