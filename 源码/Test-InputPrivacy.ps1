@@ -21,7 +21,7 @@ function Assert-True([bool]$condition, [string]$description) {
 }
 function Set-TestFocus([string]$kind, [double]$time) {
     $state = [Enum]::Parse($fieldType, $kind)
-    $null = $apply.Invoke($pet, [object[]]@($state, $time, [IntPtr]42))
+    $null = $apply.Invoke($pet, [object[]]@($state, $time, $pet.Handle))
 }
 function Send-TestKey([char]$letter, [bool]$released, [double]$time) {
     $packet = [Activator]::CreateInstance($dataType)
@@ -83,7 +83,7 @@ try {
             $null = Send-TestKey $letter $true ($time + .02)
             $time += .07
         }
-        Assert-True ($motion.MatchedWord.Label -eq $alias.ToLowerInvariant() -and $motion.Tricks.Current($time).Kind.ToString() -eq 'Basketball') 'Both basketball aliases must trigger their own dance in chat'
+        Assert-True ($motion.MatchedWord.Label -eq '鸡你太美' -and $motion.Tricks.Current($time).Kind.ToString() -eq 'Basketball') 'Both basketball aliases must trigger their own dance in chat'
     }
     $decode=$assembly.GetType('KeyboardCat.Native').GetMethod('KeyCode')
     foreach($fixture in @(@(0x31,78),@(0x39,32),@(0x02,49))) {
@@ -92,60 +92,83 @@ try {
         $dataType.GetField('MakeCode').SetValue($raw,[uint16]$fixture[0])
         Assert-True ($decode.Invoke($null,[object[]]@($raw.PSObject.BaseObject)) -eq $fixture[1]) 'IME process keys must preserve the underlying letter or candidate key'
     }
-    $sequenceType=$assembly.GetType('KeyboardCat.ChineseSequence')
-    $sequence=[Activator]::CreateInstance($sequenceType,$true)
-    $time=0.0
-    foreach($part in 'JING','ZIJI','YIBEI') {
-        foreach($letter in $part.ToCharArray()) {$null=$sequence.Letter([int]$letter,$time);$time+=.07}
-        $expected=$null
-        Assert-True ($sequence.Select($time,[ref]$expected)) 'Each IME segment must accept one confirmation'
-        if($part -ne 'YIBEI'){Assert-True ($null -eq $expected) 'Partial words must wait for another segment'}
+    $rules=@(
+        @('NIHAO','你好','Wave'), @('AIXIN','爱心','Love'), @('XIAOYU','小鱼','Fish'),
+        @('WANAN','晚安','Sleep'), @('TIAOWU','跳舞','Dance'), @('LAICAI','来财','Fortune'),
+        @('JINGZIJIYIBEI','敬自己一杯','Toast'), @('YINGKONG','硬控','Freeze'),
+        @('JINITAIMEI','鸡你太美','Basketball'), @('JNTM','鸡你太美','Basketball')
+    )
+    foreach($context in 'Ordinary','WeChatMain') {
+        Set-TestFocus $context 3
+        foreach($rule in $rules) {
+            $motion.Reset()
+            $time=3.0
+            $letters=$rule[0].ToCharArray()
+            for($i=0;$i -lt $letters.Count;$i++) {
+                $null=Send-TestKey $letters[$i] $false $time
+                if($i -lt $letters.Count-1) {
+                    Assert-True ($null -eq $motion.Tricks.Current($time)) 'Partial pinyin must not trigger'
+                } else {
+                    Assert-True ($motion.MatchedWord.Label -eq $rule[1] -and $motion.Tricks.Current($time).Kind.ToString() -eq $rule[2]) "Match $($rule[0]) on its final keydown in $context"
+                    $duration=$motion.Tricks.Current($time).Duration
+                    $null=Send-TestKey $letters[$i] $false ($time+.01)
+                }
+                $null=Send-TestKey $letters[$i] $true ($time+.02)
+                $time+=.07
+            }
+            $started=$motion.MatchedWord.Start
+            foreach($key in [char]32,[char]49,[char]13) {
+                $null=Send-TestKey $key $false $time
+                $null=Send-TestKey $key $true ($time+.01)
+                $time+=.04
+            }
+            $motion.MouseButtons(1,$time)
+            $motion.MouseButtons(2,$time+.01)
+            Assert-True ($motion.MatchedWord.Start -eq $started -and $null -eq $motion.Tricks.Current($started+$duration+.01)) 'Repeats and candidate selection must not replay or queue the trick'
+        }
     }
-    Assert-True ($expected.Trick.Kind.ToString() -eq 'Toast') 'Split Chinese pinyin must resolve to the toast'
-    Assert-True (!$sequence.Select($time,[ref]$expected)) 'A second selection key must not replay a word'
-    foreach($alias in 'JNTM','JINITAIMEI') {
-        $sequence.Clear()
-        foreach($c in $alias.ToCharArray()) {$matched=$sequence.Letter([int]$c,$time);$time+=.05}
-        Assert-True $matched 'Wait for candidate selection at the last pinyin key'
-        Assert-True ($sequence.Select($time,[ref]$expected) -and $expected.Simplified -eq '鸡你太美') 'Full spelling and initials must accept the dance'
-    }
-    $sequence.Clear()
-    foreach($c in 'XIAO'.ToCharArray()) {$null=$sequence.Letter([int]$c,0)}
-    foreach($c in 'YU'.ToCharArray()) {$null=$sequence.Letter([int]$c,12)}
-    $null=$sequence.Select(12,[ref]$expected)
-    Assert-True ($null -eq $expected) 'Stale syllables must expire'
+    # Test retained syllables independently of which input languages are installed on a CI runner.
     $motion.Reset()
-    $motion.ChineseMatch('小雨',1.0,$true)
-    Assert-True ($null -eq $motion.Tricks.Current(1.1)) 'The homophone must not match committed Han characters'
-    $motion.ChineseMatch('小魚',1.3,$true)
-    Assert-True ($motion.MatchedWord.Label -eq '小魚' -and $motion.Tricks.Current(1.4).Kind.ToString() -eq 'Fish') 'A traditional match must display its original script'
+    $time=1.0
+    foreach($key in 'JING ZIJI1YIBEI'.ToCharArray()) {
+        $split=$key -eq ' ' -or $key -eq '1'
+        $motion.KeyEvent([int]$key,$false,$time,$true,$false,$split)
+        $motion.KeyEvent([int]$key,$true,$time+.01,$true,$false,$split)
+        $time+=.08
+    }
+    Assert-True ($motion.MatchedWord.Label -eq '敬自己一杯') 'Segmented pinyin must fire on the final letter'
+    $motion.Reset()
+    $null=$motion.Tricks.Observe([int][char]'L',1,$false,$false)
+    $null=$motion.Tricks.Observe(32,1.1,$false,$true)
+    foreach($c in 'OVE'.ToCharArray()) {$null=$motion.Tricks.Observe([int]$c,1.3,$false,$false)}
+    Assert-True ($null -eq $motion.Tricks.Current(1.3)) 'English aliases must not span candidate keys'
+    $motion.Reset()
+    foreach($c in 'XIAO'.ToCharArray()) {$null=$motion.Tricks.Observe([int]$c,0,$false,$false)}
+    foreach($c in 'YU'.ToCharArray()) {$null=$motion.Tricks.Observe([int]$c,12,$false,$false)}
+    Assert-True ($null -eq $motion.Tricks.Current(12)) 'Stale syllables must expire'
+
+    $motion.Reset()
+    foreach($c in 'XIAO  YU'.ToCharArray()) {$null=$motion.Tricks.Observe([int]$c,1,$false,($c -eq ' '))}
+    Assert-True ($null -eq $motion.Tricks.Current(1.1)) 'Two separators must break a partial spelling'
+    $motion.Reset()
+    foreach($c in 'XIAOYUXIAOYU'.ToCharArray()) {$null=$motion.Tricks.Observe([int]$c,1,$false,$false)}
+    Assert-True ($motion.Tricks.Current(3.65).Kind.ToString() -eq 'Fish') 'Typing the complete spelling twice must play twice'
     $motion.Reset();$motion.Tricks.Enabled=$false
-    $motion.ChineseMatch('硬控',1.6,$true)
-    Assert-True ($null -eq $motion.Tricks.Current(1.61)) 'Disabled words must also disable Chinese'
+    foreach($c in 'XIAOYU'.ToCharArray()) {$null=Send-TestKey $c $false 1; $null=Send-TestKey $c $true 1.01}
+    Assert-True ($null -eq $motion.Tricks.Current(1.1)) 'Disabling word tricks must disable pinyin'
     $motion.Tricks.Enabled=$true
-    $motion.ChineseMatch('鸡你太美',1.8,$false)
-    Assert-True ($null -eq $motion.MatchedWord -and $motion.Tricks.Current(1.9).Kind.ToString() -eq 'Basketball') 'Hiding labels must keep Chinese tricks enabled'
+    foreach($c in 'JNTM'.ToCharArray()) {$motion.KeyEvent([int]$c,$false,1.7,$false);$motion.KeyEvent([int]$c,$true,1.71,$false)}
+    Assert-True ($null -eq $motion.MatchedWord -and $motion.Tricks.Current(1.8).Kind.ToString() -eq 'Basketball') 'Hiding labels must keep pinyin tricks enabled'
     Set-TestFocus Password 2
-    $motion.ChineseMatch('爱心',2.0,$true)
-    Assert-True ($null -eq $motion.MatchedWord -and $null -eq $motion.Tricks.Current(2)) 'Password entry must clear the word bubble and active trick'
+    foreach($c in 'AIXIN'.ToCharArray()) {$null=Send-TestKey $c $false 2; $null=Send-TestKey $c $true 2.01}
+    Assert-True ($null -eq $motion.MatchedWord -and $null -eq $motion.Tricks.Current(2.1)) 'Passwords must clear and suppress all pinyin tricks'
     Assert-True ($motion.Private -and $motion.Cover(2.3) -gt 0.99) 'Password fields must cover the eyes'
     Set-TestFocus ActivityOnly 2.4
     Assert-True (!(Send-TestKey 'Q' $false 2.5) -and $motion.Private) 'Losing metadata in the same password window must preserve privacy'
     Set-TestFocus WeChatMain 2.6
     Assert-True (!(Send-TestKey 'F' $false 2.7) -and $motion.Private) 'An opaque main window must not unlock a known password context'
-    Write-Output 'Passed ordinary, WeChat, unreported and protected input regressions.'
+    Write-Output 'Passed all nine pinyin tricks on final keydown, selection and repeat deduplication, WeChat, and protected input.'
 } finally {
     if ($pet) { $pet.Dispose() }
     if (Test-Path -LiteralPath $settingsPath) { Remove-Item -LiteralPath $settingsPath }
 }
-
-$fixture=Join-Path ([IO.Path]::GetTempPath()) ('PawPaw-caret-'+[guid]::NewGuid().ToString('N')+'.exe')
-$csc=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-if(!(Test-Path $csc)) {$csc=Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe'}
-$wpf=Join-Path (Split-Path -Parent $csc) 'WPF'
-try {
-    & $csc /nologo /codepage:65001 "/lib:$wpf" /r:WindowsBase.dll,PresentationFramework.dll,PresentationCore.dll,UIAutomationClient.dll,UIAutomationTypes.dll,System.Xaml.dll "/out:$fixture" (Join-Path $PSScriptRoot '..\scripts\test-chinese-caret.cs')
-    if($LASTEXITCODE){throw 'Compiling the Chinese caret fixture failed'}
-    & $fixture $exe
-    if($LASTEXITCODE){throw 'Native Chinese input regression'}
-} finally {if(Test-Path -LiteralPath $fixture){Remove-Item -LiteralPath $fixture}}

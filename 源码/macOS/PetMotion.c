@@ -2,22 +2,8 @@
 #include <math.h>
 #include <string.h>
 
-static const double confirmDelays[]={.04,.17,.40,.75};
-static const unsigned confirmAttempts=sizeof(confirmDelays)/sizeof(confirmDelays[0]);
-void kc_confirm_cancel(KCConfirmation *c) {c->ticket++;c->pending=false;c->attempt=0;}
-void kc_confirm_begin(KCConfirmation *c,double t) {kc_confirm_cancel(c);c->began=t;c->pending=true;}
-bool kc_confirm_current(const KCConfirmation *c,unsigned ticket,double t) {
-    return c->pending && c->ticket==ticket && t-c->began<=2.;
-}
-bool kc_confirm_due(KCConfirmation *c,double t) {
-    if(!c->pending) return false;
-    if(!kc_confirm_current(c,c->ticket,t) || c->attempt>=confirmAttempts) {kc_confirm_cancel(c);return false;}
-    return t-c->began>=confirmDelays[c->attempt];
-}
-bool kc_confirm_start(KCConfirmation *c) {return ++c->attempt==confirmAttempts;}
-
 double kc_smooth(double x) { x=fmax(0,fmin(1,x)); return x*x*(3-2*x); }
-void kc_break(KCMotion *m) { memset(m->matched,0,sizeof(m->matched)); m->lastLetter=-1e9; }
+void kc_break(KCMotion *m) { memset(m->matched,0,sizeof(m->matched)); m->lastLetter=-1e9; m->syllableStarted=false; }
 void kc_clear_bubbles(KCMotion *m) { m->bubbleCount=0; m->wordBubble=-1; }
 void kc_clear_input(KCMotion *m) {
     kc_break(m); memset(m->down,0,sizeof(m->down));
@@ -33,8 +19,9 @@ static void advance(KCMotion *m,double now) {
     m->began+=m->duration[m->trick]; m->trick=m->pending; m->pending=-1;
     if(m->trick>=0 && now>=m->began+m->duration[m->trick]) m->trick=-1;
 }
-void kc_init(KCMotion *m,const char *const aliases[KC_ALIASES],const double durations[KC_ACTIONS]) {
+void kc_init(KCMotion *m,const char *const aliases[KC_ALIASES],const double durations[KC_ACTIONS],uint32_t pinyinAliases) {
     memset(m,0,sizeof(*m)); m->labels=m->wordsEnabled=true;
+    m->pinyinAliases=pinyinAliases;
     memcpy(m->duration,durations,sizeof(m->duration));
     for(int i=0;i<KC_ALIASES;i++) {
         const char *w=aliases[i]; size_t len=strlen(w);
@@ -71,11 +58,6 @@ void kc_play(KCMotion *m,int trick,double now) {
     if(m->trick>=0) m->pending=trick;
     else {m->trick=trick; m->began=now;}
 }
-void kc_chinese_match(KCMotion *m,int match,double t) {
-    if(!m->wordsEnabled || m->privateInput || match<0 || match>=KC_WORDS*2) return;
-    kc_play(m,match/2,t);
-    if(m->labels) {m->wordBubble=KC_ALIASES+match;m->wordBegan=t;m->bubbleCount=0;}
-}
 int kc_event_letter(int physicalLetter,uint16_t character,unsigned count) {
     if(count==1) {
         if(character>='a' && character<='z') return character-'a'+'A';
@@ -85,21 +67,28 @@ int kc_event_letter(int physicalLetter,uint16_t character,unsigned count) {
     // Input methods may leave a physical keystroke untranslated or return composed text.
     return physicalLetter;
 }
-static int observe(KCMotion *m,int letter,bool shortcut,bool shiftOnly,double t) {
+static int observe(KCMotion *m,int letter,bool shortcut,KCWordBoundary boundary,double t) {
     if(!m->wordsEnabled) return -1;
     if(shortcut) {kc_break(m); return -1;}
-    if(shiftOnly) return -1;
-    if(letter<'A' || letter>'Z') {kc_break(m); return -1;}
-    if(t-m->lastLetter>2.5) kc_break(m);
-    m->lastLetter=t;
+    if(boundary==KCKeepWord) return -1;
+    if(letter<'A' || letter>'Z') {
+        if(boundary==KCKeepPinyin && m->syllableStarted) {
+            m->syllableStarted=false;
+            for(int i=0;i<KC_ALIASES;i++) if(!(m->pinyinAliases&(1u<<i))) m->matched[i]=0;
+        } else kc_break(m);
+        return -1;
+    }
+    double gap=t-m->lastLetter;
+    m->lastLetter=t; m->syllableStarted=true;
     // Each set bit is a length of a matching prefix of a fixed trigger word.
     for(int i=0;i<KC_ALIASES;i++) {
+        if(gap>((m->pinyinAliases&(1u<<i))?8.:2.5)) m->matched[i]=0;
         m->matched[i]=((m->matched[i]<<1)|1u)&m->positions[i][letter-'A'];
         if(m->lastBit[i] && (m->matched[i]&m->lastBit[i])) {kc_play(m,i/2,t);return i;}
     }
     return -1;
 }
-void kc_key(KCMotion *m,int hw,int cap,int hand,int letter,bool release,bool repeat,bool shortcut,bool shiftOnly,double t) {
+void kc_key(KCMotion *m,int hw,int cap,int hand,int letter,bool release,bool repeat,bool shortcut,KCWordBoundary boundary,double t) {
     if(m->privateInput) return;
     kc_interrupt_idle(m,t);
     if(hw<0 || hw>=128) {if(!release) kc_break(m); return;}
@@ -110,7 +99,7 @@ void kc_key(KCMotion *m,int hw,int cap,int hand,int letter,bool release,bool rep
     }
     if(m->down[hw] || repeat) return;
     m->down[hw]=true;
-    int alias=observe(m,letter,shortcut,shiftOnly,t);
+    int alias=observe(m,letter,shortcut,boundary,t);
     if(alias>=0 && m->labels) {
         m->wordBubble=alias; m->wordBegan=t; m->bubbleCount=0;
     }

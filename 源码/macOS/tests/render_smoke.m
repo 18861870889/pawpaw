@@ -16,38 +16,21 @@ int main(int argc,const char **argv) {
         NSBundle *bundle=[NSBundle bundleWithPath:[NSString stringWithUTF8String:argv[1]]];
         PetArt *art=[[PetArt alloc] initWithBundle:bundle];
         assert(art && art.tricks.count==KC_WORDS && art.chinese.rules.count==KC_WORDS);
-        for(int i=0;i<KC_WORDS;i++) for(int script=1;script<=2;script++) {
-            NSString *word=art.chinese.rules[i][script];
-            int hit=[art.chinese matchSuffix:[@"今天" stringByAppendingString:word]];
-            assert(hit/2==i && [[art.chinese wordForMatch:hit] isEqual:word]);
-            [art.chinese clear];
-            for(NSUInteger c=0;c<word.length;c++) hit=[art.chinese committedCharacter:[word characterAtIndex:c] time:1+c*.1];
-            assert(hit>=0 && hit/2==i);
-        }
-        assert([art.chinese matchSuffix:@"在下小雨"]==-1);
-        assert([[art.chinese wordForMatch:[art.chinese matchSuffix:@"你好 "]] isEqual:@"你好"]);
-        assert([[art.chinese wordForMatch:[art.chinese matchSuffix:@"小魚　"]] isEqual:@"小魚"]);
-        assert([art.chinese matchSuffix:@"你好  "]==-1);
-        assert([[art.chinese wordForMatch:[art.chinese matchSuffix:@"敬自己一杯。"]] isEqual:@"敬自己一杯"]);
-        [art.chinese clear];
-        int expected=-1;
-        for(NSString *part in @[@"JING",@"ZIJI",@"YIBEI"]) {
-            BOOL complete=NO;
-            for(NSUInteger c=0;c<part.length;c++) complete=[art.chinese letter:[part characterAtIndex:c] time:2];
-            assert(complete==[part isEqual:@"YIBEI"]);
-            assert([art.chinese selectAt:2 expected:&expected]);
-        }
-        assert(expected==12 && ![art.chinese selectAt:2 expected:&expected]);
         const char *aliases[KC_ALIASES]; double durations[KC_ACTIONS];
         for(int i=0;i<KC_WORDS;i++){
             aliases[i*2]=[art.tricks[i][0] UTF8String];aliases[i*2+1]=[art.tricks[i][1] UTF8String];
             durations[i]=[art.tricks[i][3] doubleValue];
+            NSArray *rule=art.chinese.rules[i];
+            for(int alias=0;alias<2;alias++) {
+                BOOL isPinyin=[rule indexOfObject:art.tricks[i][alias] inRange:NSMakeRange(3,rule.count-3)]!=NSNotFound;
+                assert(isPinyin==((art.chinese.pinyinAliases&(1u<<(2*i+alias)))!=0));
+            }
         }
         for(int i=0;i<KC_IDLE_COUNT;i++) durations[KC_WORDS+i]=[art.idles[i][1] doubleValue];
         int keys[]={3,34,1,4}; // F I S H on the Mac virtual keyboard
         assert([art.catalog[@"roles"] count]==7);
         for(int cat=0;cat<(int)[art.catalog[@"roles"] count];cat++) for(int print=0;print<2;print++){
-            KCMotion m;kc_init(&m,aliases,durations);art.printLook=print;
+            KCMotion m;kc_init(&m,aliases,durations,art.chinese.pinyinAliases);art.printLook=print;
             NSDictionary *role=art.catalog[@"roles"][cat];
             for(int i=0;i<4;i++){
                 NSArray *key=art.keymap[[NSString stringWithFormat:@"%d",keys[i]]];
@@ -62,9 +45,18 @@ int main(int argc,const char **argv) {
             kc_clear_bubbles(&m);
             NSData *withoutWord=pixels(art,role,&m,1.65);
             assert(withWord.length && ![withWord isEqual:withoutWord]);
-            kc_chinese_match(&m,5,1.66);
-            assert(m.wordBubble==KC_ALIASES+5 && ![pixels(art,role,&m,1.7) isEqual:withoutWord]);
-            KCMotion dance;kc_init(&dance,aliases,durations);
+            double typedAt=1.66;
+            for(const char *p="XIAOYU";*p;p++,typedAt+=.04) {
+                int hw=*p-'A';
+                kc_key(&m,hw,-1,0,*p,false,false,false,KCBreakWord,typedAt);
+                kc_key(&m,hw,-1,0,*p,true,false,false,KCBreakWord,typedAt+.01);
+            }
+            assert(m.wordBubble==5 && (m.pinyinAliases&(1u<<5)) && [art.chinese.rules[2][1] isEqual:@"小鱼"]);
+            NSData *withChinese=pixels(art,role,&m,typedAt+.1);
+            m.pinyinAliases=0;
+            assert(![withChinese isEqual:pixels(art,role,&m,typedAt+.1)]);
+            m.pinyinAliases=art.chinese.pinyinAliases;
+            KCMotion dance;kc_init(&dance,aliases,durations,art.chinese.pinyinAliases);
             kc_play(&dance,KC_WORDS-1,1.0);
             NSData *dribble=pixels(art,role,&dance,1.35);
             assert(![dribble isEqual:pixels(art,role,&dance,2.62)]);

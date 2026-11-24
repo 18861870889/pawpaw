@@ -4,6 +4,7 @@
 #include <stdio.h>
 static const char *const words[]={"hello","nihao","love","aixin","fish","xiaoyu","sleep","wanan","dance","tiaowu","laicai","fortune","jingzijiyibei","cheers","yingkong","freeze","jinitaimei","jntm"};
 static const double durations[]={2.2,2.4,2.55,3.25,2.7,2.75,3.1,2.7,3.8,3.,2.65,3.05};
+static const uint32_t pinyinAliases=(1u<<1)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<10)|(1u<<12)|(1u<<14)|(1u<<16)|(1u<<17);
 static void type(KCMotion *m,const char *word,double t) {
     for(;*word;word++,t+=.09) {
         int h=*word-'a',k=h+'A';
@@ -12,7 +13,7 @@ static void type(KCMotion *m,const char *word,double t) {
     }
 }
 static void chat_and_game(void) {
-    KCMotion m; kc_init(&m,words,durations);
+    KCMotion m; kc_init(&m,words,durations,pinyinAliases);
     assert(kc_event_letter('Q','a',1)=='A');
     assert(kc_event_letter('F',0,0)=='F' && kc_event_letter('I',0x6765,1)=='I');
     assert(kc_event_letter('S',0x6765,2)=='S' && kc_event_letter('H',0,1)=='H');
@@ -45,7 +46,7 @@ static void chat_and_game(void) {
 }
 int main(void) {
     chat_and_game();
-    KCMotion m;kc_init(&m,words,durations);
+    KCMotion m;kc_init(&m,words,durations,pinyinAliases);
     assert(m.mouseSide==2);
     for(int button=0;button<3;button++) {
         kc_mouse(&m,button,true,.2);assert(m.mouseSide==button && m.mouseButtons);
@@ -70,7 +71,7 @@ int main(void) {
     m.wordsEnabled=true;kc_play(&m,2,14);kc_play(&m,4,14.2);kc_privacy(&m,true,14.25);
     type(&m,"dance",14.3);assert(kc_cover(&m,15)==1 && m.trick<0 && !m.bubbleCount && m.paw[0].cap<0);
     kc_privacy(&m,false,15.1);assert(kc_cover(&m,15.4)==0);type(&m,"love",15.5);assert(m.trick==1);
-    kc_init(&m,words,durations);kc_idle(&m,0,0,true,false);kc_idle(&m,11.99,11.99,true,false);assert(m.trick<0);
+    kc_init(&m,words,durations,pinyinAliases);kc_idle(&m,0,0,true,false);kc_idle(&m,11.99,11.99,true,false);assert(m.trick<0);
     kc_idle(&m,12,12,true,false);assert(m.trick==KC_WORDS);
     type(&m,"laicai",12.2);assert(m.trick==5);kc_play(&m,6,13);assert(m.pending==6);
     kc_step(&m,15.6,.1,0,0,true);assert(m.trick==6);
@@ -79,20 +80,34 @@ int main(void) {
     kc_idle(&m,56,24,true,false);assert(m.trick==KC_WORDS+2);
     kc_privacy(&m,true,56.1);kc_idle(&m,77,21,true,false);assert(m.trick<0);
     kc_privacy(&m,false,78);kc_idle(&m,78,0,false,false);kc_idle(&m,91,13,false,false);assert(m.trick<0);
-    kc_init(&m,words,durations);kc_idle(&m,0,0,true,true);kc_idle(&m,12,12,true,true);assert(m.trick==KC_WORDS+1);
+    kc_init(&m,words,durations,pinyinAliases);kc_idle(&m,0,0,true,true);kc_idle(&m,12,12,true,true);assert(m.trick==KC_WORDS+1);
     kc_mouse(&m,0,true,12.2);assert(m.trick<0);
-    KCConfirmation check={0};kc_confirm_begin(&check,1);
-    unsigned current=check.ticket;
-    assert(!kc_confirm_due(&check,1.01) && kc_confirm_due(&check,1.06) && !kc_confirm_start(&check));
-    assert(!kc_confirm_due(&check,1.10) && kc_confirm_due(&check,1.21) && !kc_confirm_start(&check));
-    assert(kc_confirm_due(&check,1.48) && !kc_confirm_start(&check) && kc_confirm_current(&check,current,1.5));
-    assert(kc_confirm_due(&check,1.8) && kc_confirm_start(&check));
-    kc_confirm_cancel(&check);assert(!kc_confirm_current(&check,current,1.81) && !kc_confirm_due(&check,2));
-    kc_confirm_begin(&check,2.1);assert(!kc_confirm_due(&check,4.5));
-    kc_reset(&m);kc_chinese_match(&m,17,1);assert(m.trick==8 && m.wordBubble==KC_ALIASES+17);
-    kc_privacy(&m,true,2);kc_chinese_match(&m,4,2.1);assert(m.trick<0 && m.wordBubble<0);
-    kc_privacy(&m,false,3);m.wordsEnabled=false;kc_chinese_match(&m,4,3);assert(m.trick<0);
-    m.wordsEnabled=true;m.labels=false;kc_chinese_match(&m,4,3.2);assert(m.trick==2 && m.wordBubble<0);
-    puts("Mac: all Latin aliases, Chinese confirmations, privacy, repeats, timing and idle actions passed.");
+    kc_reset(&m);type(&m,"xiaoy",1);
+    assert(m.trick<0);
+    kc_key(&m,32,1,0,'U',false,false,false,KCBreakWord,1.6);
+    assert(m.trick==2 && m.wordBubble==5 && m.wordBegan==1.6);
+    kc_key(&m,32,1,0,'U',false,true,false,KCBreakWord,1.61);
+    kc_key(&m,32,1,0,'U',true,false,false,KCBreakWord,1.62);
+    kc_key(&m,49,1,0,0,false,false,false,KCKeepPinyin,1.7);
+    kc_key(&m,18,1,0,0,false,false,false,KCKeepPinyin,1.8);
+    kc_mouse(&m,0,true,1.9);
+    assert(m.wordBegan==1.6 && m.pending==-1);
+    kc_reset(&m);type(&m,"jing",1);
+    kc_key(&m,49,1,0,0,false,false,false,KCKeepPinyin,1.6);
+    type(&m,"ziji",2);kc_key(&m,18,1,0,0,false,false,false,KCKeepPinyin,2.5);
+    type(&m,"yibei",3);assert(m.trick==6 && m.wordBubble==12);
+    kc_reset(&m);type(&m,"l",1);kc_key(&m,49,1,0,0,false,false,false,KCKeepPinyin,1.2);type(&m,"ove",1.4);
+    assert(m.trick<0);
+    kc_reset(&m);type(&m,"xiao",1);type(&m,"yu",10);assert(m.trick<0);
+    kc_reset(&m);type(&m,"xiao",1);
+    kc_key(&m,49,1,0,0,false,false,false,KCKeepPinyin,1.5);
+    kc_key(&m,49,1,0,0,true,false,false,KCKeepPinyin,1.51);
+    kc_key(&m,49,1,0,0,false,false,false,KCKeepPinyin,1.6);
+    type(&m,"yu",2);assert(m.trick<0);
+    kc_reset(&m);type(&m,"xiaoyu",1);type(&m,"xiaoyu",2);assert(m.trick==2 && m.pending==2);
+    kc_reset(&m);kc_privacy(&m,true,1);type(&m,"xiaoyu",1.1);assert(m.trick<0 && m.wordBubble<0);
+    kc_privacy(&m,false,2);m.wordsEnabled=false;type(&m,"jntm",2.1);assert(m.trick<0);
+    m.wordsEnabled=true;m.labels=false;type(&m,"jntm",3);assert(m.trick==8 && m.wordBubble<0);
+    puts("Mac: immediate pinyin, candidate and repeat deduplication, privacy, input timing and idle actions passed.");
     return 0;
 }

@@ -40,10 +40,12 @@ namespace KeyboardCat
         {
             public readonly Prefix[] Next=new Prefix[26];
             public WordTrick Match;
-            public string Word;
+            public string Label;
+            public bool IsPinyin;
         }
         static readonly Prefix start=BuildMatcher();
-        Prefix position=start;
+        Prefix position=start, pinyinPosition=start;
+        bool syllableStarted;
         IntPtr foreground;
         double lastLetter=double.NegativeInfinity;
         WordTrick active,pending;
@@ -71,7 +73,10 @@ namespace KeyboardCat
                     if (!states.ContainsKey(prefix)) states.Add(prefix,new Prefix());
                 }
                 states[word].Match=trick;
-                states[word].Word=word;
+                ChineseWord chinese=ChineseWord.For(trick);
+                bool isPinyin=chinese.IsSpelling(word);
+                states[word].IsPinyin=isPinyin;
+                states[word].Label=isPinyin?chinese.Simplified:word;
             }
             foreach (KeyValuePair<string,Prefix> entry in states)
             for (int i=0;i<26;i++)
@@ -86,7 +91,7 @@ namespace KeyboardCat
 
         public void BreakSequence()
         {
-            position=start;
+            position=pinyinPosition=start; syllableStarted=false;
             lastLetter=double.NegativeInfinity;
         }
 
@@ -97,19 +102,28 @@ namespace KeyboardCat
             BreakSequence();
         }
 
-        public string Observe(int key,double now,bool shortcut)
+        public string Observe(int key,double now,bool shortcut,bool syllableSeparator)
         {
             if (!enabled) return null;
             if (shortcut) { BreakSequence(); return null; }
             if (key==0x10 || key==0xa0 || key==0xa1 || key==0x14) return null; // Shift and Caps Lock
-            if (key<'A' || key>'Z') { BreakSequence(); return null; }
-            if (now-lastLetter>2.5) position=start;
-            lastLetter=now;
+            if (key<'A' || key>'Z') {
+                position=start;
+                if (!syllableSeparator || !syllableStarted) BreakSequence();
+                syllableStarted=false;
+                return null;
+            }
+            double gap=now-lastLetter;
+            if (gap>2.5) position=start;
+            if (gap>8) pinyinPosition=start;
+            lastLetter=now; syllableStarted=true;
             position=position.Next[key-'A'];
-            if (position.Match==null) return null;
-            string word=position.Word;
-            Play(position.Match,now);
-            return word;
+            pinyinPosition=pinyinPosition.Next[key-'A'];
+            // Only registered pinyin aliases may span a syllable separator.
+            Prefix hit=pinyinPosition.IsPinyin?pinyinPosition:position;
+            if (hit.Match==null) return null;
+            Play(hit.Match,now);
+            return hit.Label;
         }
 
         public void Play(WordTrick trick,double now)

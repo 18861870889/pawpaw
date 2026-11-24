@@ -263,8 +263,8 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
         [self drawBubble:entry[1] cap:_keys[b.cap] lane:b.lane age:(t-b.start)/.72];
     }
     if(m->wordBubble>=0) {
-        NSString *word=m->wordBubble<KC_ALIASES?_tricks[m->wordBubble/2][m->wordBubble%2]:
-            [_chinese wordForMatch:m->wordBubble-KC_ALIASES];
+        int alias=m->wordBubble;
+        NSString *word=(m->pinyinAliases&(1u<<alias))?_chinese.rules[alias/2][1]:_tricks[alias/2][alias%2];
         [self drawBubble:word cap:nil lane:1 age:(t-m->wordBegan)/KC_WORD_BUBBLE_SECONDS];
     }
     CGContextRestoreGState(_ctx);
