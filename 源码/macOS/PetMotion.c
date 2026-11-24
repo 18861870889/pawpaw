@@ -67,7 +67,23 @@ int kc_event_letter(int physicalLetter,uint16_t character,unsigned count) {
     // Input methods may leave a physical keystroke untranslated or return composed text.
     return physicalLetter;
 }
-static int observe(KCMotion *m,int letter,bool shortcut,KCWordBoundary boundary,double t) {
+bool kc_word_accept(KCWordGate *gate,int rule,bool spelling) {
+    if(rule<0 || rule>=KC_WORDS) return false;
+    if(!gate) return true;
+    uint32_t bit=1u<<rule;
+    uint32_t *opposite=spelling?&gate->words:&gate->spellings;
+    if(*opposite&bit) {*opposite&=~bit;return false;}
+    if(spelling) gate->spellings|=bit; else gate->words|=bit;
+    return true;
+}
+bool kc_exact_word(KCMotion *m,KCWordGate *gate,int match,double t) {
+    if(m->privateInput || m->gameActive || !m->wordsEnabled || match<0 || match>=KC_ALIASES ||
+       !kc_word_accept(gate,match/2,false)) return false;
+    kc_play(m,match/2,t);
+    if(m->labels) {m->wordBubble=KC_ALIASES+match;m->wordBegan=t;m->bubbleCount=0;}
+    return true;
+}
+static int observe(KCMotion *m,int letter,bool shortcut,KCWordBoundary boundary,double t,KCWordGate *gate) {
     if(!m->wordsEnabled) return -1;
     if(shortcut) {kc_break(m); return -1;}
     if(boundary==KCKeepWord) return -1;
@@ -84,11 +100,17 @@ static int observe(KCMotion *m,int letter,bool shortcut,KCWordBoundary boundary,
     for(int i=0;i<KC_ALIASES;i++) {
         if(gap>((m->pinyinAliases&(1u<<i))?8.:2.5)) m->matched[i]=0;
         m->matched[i]=((m->matched[i]<<1)|1u)&m->positions[i][letter-'A'];
-        if(m->lastBit[i] && (m->matched[i]&m->lastBit[i])) {kc_play(m,i/2,t);return i;}
+        if(m->lastBit[i] && (m->matched[i]&m->lastBit[i])) {
+            if(!kc_word_accept(gate,i/2,true)) {kc_break(m);return -1;}
+            kc_play(m,i/2,t);return i;
+        }
     }
     return -1;
 }
 void kc_key(KCMotion *m,int hw,int cap,int hand,int letter,bool release,bool repeat,bool shortcut,KCWordBoundary boundary,double t) {
+    kc_key_in_entry(m,hw,cap,hand,letter,release,repeat,shortcut,boundary,t,NULL);
+}
+void kc_key_in_entry(KCMotion *m,int hw,int cap,int hand,int letter,bool release,bool repeat,bool shortcut,KCWordBoundary boundary,double t,KCWordGate *gate) {
     if(m->privateInput) return;
     kc_interrupt_idle(m,t);
     if(hw<0 || hw>=128) {if(!release) kc_break(m); return;}
@@ -99,7 +121,7 @@ void kc_key(KCMotion *m,int hw,int cap,int hand,int letter,bool release,bool rep
     }
     if(m->down[hw] || repeat) return;
     m->down[hw]=true;
-    int alias=observe(m,letter,shortcut,boundary,t);
+    int alias=observe(m,letter,shortcut,boundary,t,gate);
     if(alias>=0 && m->labels) {
         m->wordBubble=alias; m->wordBegan=t; m->bubbleCount=0;
     }

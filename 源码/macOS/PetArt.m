@@ -60,7 +60,7 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
     NSDictionary *m=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL]:nil;
     _atlas=[NSData dataWithContentsOfURL:bin options:NSDataReadingMappedIfSafe error:NULL];
     if(![m isKindOfClass:[NSDictionary class]] || !_atlas.length || [m[@"scale"] intValue]!=2 ||
-        [m[@"tricks"] count]!=KC_WORDS || [m[@"keys"] count]!=63 || [m[@"version"] intValue]!=6 || [m[@"idles"] count]!=KC_IDLE_COUNT || ![m[@"catalog"][@"roles"] count] || !m[@"sprites"][@"board/0"]) return nil;
+        [m[@"tricks"] count]!=KC_WORDS || [m[@"keys"] count]!=63 || [m[@"version"] intValue]!=7 || [m[@"idles"] count]!=KC_IDLE_COUNT || ![m[@"catalog"][@"roles"] count] || !m[@"sprites"][@"board/0"]) return nil;
     _printInks=[NSData dataWithContentsOfURL:[bundle URLForResource:@"PrintInks" withExtension:@"rgb"]];
     if(_printInks.length!=32768*6) return nil;
     _catalog=m[@"catalog"]; _sprites=m[@"sprites"]; _clips=m[@"clips"]; _tricks=m[@"tricks"]; _idles=m[@"idles"]; _keymap=m[@"keymap"]; _keys=m[@"keys"];
@@ -174,14 +174,16 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
     double lx=m->lookX*(1-typing*.5),ly=m->lookY+(.83-m->lookY)*typing*.68;
     lx*=1-cover;ly*=1-cover;
     double breath=sin(t*2.05)*(cat?1:.62);
-    NSString *frameName=nil; NSArray *headMatrix=nil;
+    NSString *frameName=nil,*foreground=nil; NSArray *headMatrix=nil;
     if(m->trick>=0 && m->trick<KC_ACTIONS) {
         NSArray *rule=m->trick<KC_WORDS?_tricks[m->trick]:_idles[m->trick-KC_WORDS];
-        NSString *clip=[NSString stringWithFormat:@"%@clip/%@",outfit,rule[0]];
+        NSString *shared=rule.count>5 && [rule[5] isKindOfClass:NSString.class]?rule[5]:nil;
+        NSString *clip=[NSString stringWithFormat:@"%@clip/%@",outfit,shared?:rule[0]];
         NSArray *frames=_clips[clip];
         if(frames.count) {
             int i=clampi((int)floor((t-m->began)*15),0,(int)frames.count-1);
             headMatrix=frames[i]; frameName=[NSString stringWithFormat:@"%@/%d/",clip,i];
+            foreground=shared?[NSString stringWithFormat:@"%@prop/%@/%d",who,rule[0],i]:[frameName stringByAppendingString:@"front"];
         }
     }
     double phase=t+(cat?2.3:0),weight=[headMatrix[16] doubleValue],still=[headMatrix[19] doubleValue];
@@ -254,7 +256,7 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
         [self sprite:[NSString stringWithFormat:@"%@privacy/%d",outfit,clampi((int)lround(cover*10),1,10)]];
         CGContextRestoreGState(_ctx);
     }
-    if(frameName) [self sprite:[frameName stringByAppendingString:@"front"]];
+    if(foreground) [self sprite:foreground];
     if(self.printLook && m->trick==2) fishGlints(_ctx,cat==1,t-m->began);
     for(int i=0;i<m->bubbleCount;i++) {
         KCBubble b=m->bubbles[i];
@@ -264,7 +266,8 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
     }
     if(m->wordBubble>=0) {
         int alias=m->wordBubble;
-        NSString *word=(m->pinyinAliases&(1u<<alias))?_chinese.rules[alias/2][1]:_tricks[alias/2][alias%2];
+        NSString *word=alias>=KC_ALIASES?_chinese.rules[(alias-KC_ALIASES)/2][1+(alias-KC_ALIASES)%2]:
+            (m->pinyinAliases&(1u<<alias))?_chinese.rules[alias/2][1]:_tricks[alias/2][alias%2];
         [self drawBubble:word cap:nil lane:1 age:(t-m->wordBegan)/KC_WORD_BUBBLE_SECONDS];
     }
     CGContextRestoreGState(_ctx);

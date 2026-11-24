@@ -2,9 +2,9 @@
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
-static const char *const words[]={"hello","nihao","love","aixin","fish","xiaoyu","sleep","wanan","dance","tiaowu","laicai","fortune","jingzijiyibei","cheers","yingkong","freeze","jinitaimei","jntm"};
-static const double durations[]={2.2,2.4,2.55,3.25,2.7,2.75,3.1,2.7,3.8,3.,2.65,3.05};
-static const uint32_t pinyinAliases=(1u<<1)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<10)|(1u<<12)|(1u<<14)|(1u<<16)|(1u<<17);
+static const char *const words[]={"hello","nihao","love","aixin","fish","xiaoyu","sleep","wanan","dance","tiaowu","laicai","fortune","jingzijiyibei","cheers","yingkong","freeze","jinitaimei","jntm","mixuebingchengtianmimi","mxbctmm","dinnertime","ganfanshijian","triplelike","yijiansanlian"};
+static const double durations[]={2.2,2.4,2.55,3.25,2.7,2.75,3.1,2.7,3.8,2.7,2.55,2.2,3.,2.65,3.05};
+static const uint32_t pinyinAliases=(1u<<1)|(1u<<3)|(1u<<5)|(1u<<7)|(1u<<9)|(1u<<10)|(1u<<12)|(1u<<14)|(1u<<16)|(1u<<17)|(1u<<18)|(1u<<19)|(1u<<21)|(1u<<23);
 static void type(KCMotion *m,const char *word,double t) {
     for(;*word;word++,t+=.09) {
         int h=*word-'a',k=h+'A';
@@ -108,6 +108,15 @@ int main(void) {
     kc_reset(&m);kc_privacy(&m,true,1);type(&m,"xiaoyu",1.1);assert(m.trick<0 && m.wordBubble<0);
     kc_privacy(&m,false,2);m.wordsEnabled=false;type(&m,"jntm",2.1);assert(m.trick<0);
     m.wordsEnabled=true;m.labels=false;type(&m,"jntm",3);assert(m.trick==8 && m.wordBubble<0);
+    KCWordGate turn={0},next={0};
+    kc_reset(&m);m.wordsEnabled=m.labels=true;
+    assert(kc_word_accept(&turn,9,true) && !kc_exact_word(&m,&turn,18,4));
+    assert(kc_exact_word(&m,&next,18,4.01) && m.wordBubble==KC_ALIASES+18);
+    assert(!kc_word_accept(&next,9,true) && m.pending<0);
+    assert(kc_exact_word(&m,&next,18,4.02) && m.pending==9);
+    m.gameActive=true;assert(!kc_exact_word(&m,&next,20,5));m.gameActive=false;
+    m.wordsEnabled=false;assert(!kc_exact_word(&m,&next,20,5));m.wordsEnabled=true;
+    kc_privacy(&m,true,5);assert(!kc_exact_word(&m,&next,18,5.1));
     puts("Mac: immediate pinyin, candidate and repeat deduplication, privacy, input timing and idle actions passed.");
     return 0;
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 
 namespace KeyboardCat
@@ -8,14 +9,14 @@ namespace KeyboardCat
     internal sealed class ChineseWord
     {
         public readonly WordTrick Trick;
-        public readonly string Simplified;
+        public readonly string Simplified,Traditional;
         readonly string[] Spellings;
         public static readonly List<ChineseWord> All=Load();
 
         ChineseWord(string[] parts) {
             Trick=Array.Find(WordTrick.All,item=>item.Word==parts[0]);
             if(Trick==null) throw new InvalidDataException("Unknown trick in Chinese vocabulary");
-            Simplified=parts[1];
+            Simplified=parts[1];Traditional=parts[2];
             Spellings=new string[parts.Length-3];
             Array.Copy(parts,3,Spellings,0,Spellings.Length);
         }
@@ -29,6 +30,7 @@ namespace KeyboardCat
             return words;
         }
         public static ChineseWord For(WordTrick trick) {return All.Find(word=>word.Trick==trick);}
+        public static readonly int MaxLength=All.Max(w=>Math.Max(w.Simplified.Length,w.Traditional.Length));
         public bool IsSpelling(string alias) {return Array.IndexOf(Spellings,alias)>=0;}
     }
 

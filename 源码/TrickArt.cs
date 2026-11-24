@@ -30,7 +30,7 @@ namespace KeyboardCat
                 int side=cat.Longhair?-1:1;
                 PointF l=new PointF(132,169+breath), r=new PointF(176,171+breath);
                 float beat;
-                switch (p.Kind)
+                switch ((trick.SharedPose??trick).Kind)
                 {
                     case TrickKind.Wave:
                         beat=(float)Math.Sin(sec*(cat.Longhair?8.8:11.1));

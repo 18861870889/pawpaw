@@ -107,6 +107,10 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     PressStudio *_press;
     PetStudio *_studio;
     KCMotion _motion;
+    ChineseWordObserver *_wordObserver;
+    KCWordTurn *_turn;
+    pid_t _frontPID;
+    double _nextFieldCheck;
     CFMachPortRef _tap;
     CFRunLoopSourceRef _source;
     NSPoint _priorMouse;
@@ -181,6 +185,11 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     }
     for(int i=0;i<KC_IDLE_COUNT;i++) durations[KC_WORDS+i]=[self.art.idles[i][1] doubleValue];
     kc_init(&_motion,aliases,durations,self.art.chinese.pinyinAliases);
+    _turn=[KCWordTurn new];
+    __weak typeof(self) weakSelf=self;
+    _wordObserver=[[ChineseWordObserver alloc] initWithCatalog:self.art.chinese hit:^(pid_t pid,KCWordTurn *turn,int match) {
+        [weakSelf receiveWord:match turn:turn pid:pid];
+    }];
     [[NSDistributedNotificationCenter defaultCenter] addObserver:self selector:@selector(inputSourceChanged:)
         name:(__bridge NSString *)kTISNotifySelectedKeyboardInputSourceChanged object:nil];
     [self inputSourceChanged:nil];
@@ -244,7 +253,9 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     if(_transparencyPanel.visible) [_transparencyPanel setFrame:[_transparencyPanel constrainFrameRect:_transparencyPanel.frame toScreen:screenAt(_transparencyPanel.frame.origin)] display:YES];
 }
 - (void)privacy:(BOOL)secure time:(double)t {
-    kc_privacy(&_motion,secure,t);
+    if(secure==_motion.privateInput) return;
+    kc_privacy(&_motion,secure,t);_turn=[KCWordTurn new];
+    [self trackWord:YES confirm:NO];
 }
 - (void)inputSourceChanged:(NSNotification *)note {
     BOOL chinese=NO;
@@ -260,14 +271,30 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     }
     if(_chineseSource==chinese && [_inputSourceID isEqual:sourceID]) return;
     _chineseSource=chinese;_inputSourceID=sourceID;
-    kc_break(&_motion);
+    kc_break(&_motion);_turn=[KCWordTurn new];[self trackWord:NO confirm:NO];
 }
-- (void)breakInput {kc_clear_input(&_motion);_priorMouse=NSEvent.mouseLocation;}
+- (BOOL)canReadWord {
+    return !_paused && !_menuDepth && !_view.dragging && !(NSApp.active && NSApp.keyWindow) && !NSApp.modalWindow &&
+        _motion.wordsEnabled && !_motion.privateInput && !_motion.gameActive && !IsSecureEventInputEnabled() &&
+        _frontPID>0 && _frontPID!=NSProcessInfo.processInfo.processIdentifier;
+}
+- (void)trackWord:(BOOL)refresh confirm:(BOOL)confirm {
+    [_wordObserver follow:[self canReadWord]?_frontPID:0 turn:_turn refresh:refresh confirm:confirm];
+}
+- (void)receiveWord:(int)match turn:(KCWordTurn *)turn pid:(pid_t)pid {
+    if(pid==_frontPID && [self canReadWord] && kc_exact_word(&_motion,&turn->gate,match,Now())) _lastRender=0;
+}
+- (void)breakInput {
+    kc_clear_input(&_motion);_priorMouse=NSEvent.mouseLocation;_turn=[KCWordTurn new];
+    [_wordObserver follow:0 turn:_turn refresh:NO confirm:NO];
+}
 - (void)focusChanged:(NSNotification *)n {
     [self breakInput];[self inputSourceChanged:nil];
     NSRunningApplication *front=NSWorkspace.sharedWorkspace.frontmostApplication;
+    _frontPID=front.processIdentifier;
     _motion.gameActive=[front.bundleIdentifier.lowercaseString isEqualToString:@"com.valvesoftware.dota2"] ||
         [front.executableURL.lastPathComponent.lowercaseString isEqualToString:@"dota2"];
+    [self trackWord:YES confirm:NO];
 }
 - (void)woke:(NSNotification *)n {[self focusChanged:n];[self stopTap];[self updatePermission];}
 - (void)restoreTap {[self breakInput];if(_tap && !_paused) CGEventTapEnable(_tap,true);}
@@ -326,11 +353,26 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
             if(_chineseSource && !_motion.gameActive && (hw==49 || hw==39 || digit || (count==1 && chars[0]>='1' && chars[0]<='9')))
                 boundary=KCKeepPinyin;
         }
-        kc_key(&_motion,hw,cap,hand,letter,up,repeat,shortcut,boundary,t);
+        BOOL confirm=NO;
+        if(!up && !repeat && !shift && _motion.wordsEnabled) {
+            BOOL paste=shortcut && hw==9 && (flags&kCGEventFlagMaskCommand);
+            if(shortcut || hw==51 || hw==117 || hw==53 || hw==48 || (hw>=123 && hw<=126)) _turn=[KCWordTurn new];
+            else if(letter>='A' && letter<='Z') {
+                if(_turn.closed || (_turn.typed && t-_motion.lastLetter>8)) _turn=[KCWordTurn new];
+                _turn.typed=YES;
+            } else {
+                confirm=_turn.typed && (boundary==KCKeepPinyin || hw==36 || hw==49 || hw==76);
+                _turn.closed=YES;if(confirm) _turn.typed=NO;
+            }
+            confirm=confirm || paste;
+        }
+        kc_key_in_entry(&_motion,hw,cap,hand,letter,up,repeat,shortcut,boundary,t,&_turn->gate);
+        if(!up && !repeat) [self trackWord:hw==48 confirm:confirm];
     } else if(type==kCGEventScrollWheel) {
         kc_interrupt_idle(&_motion,t);kc_break(&_motion);_motion.lastClick=_motion.lastMove=t;_motion.mouseSide=2;
     } else {
         bool pressed=type==kCGEventLeftMouseDown || type==kCGEventRightMouseDown || type==kCGEventOtherMouseDown;
+        if(pressed) {_turn.closed=YES;[self trackWord:YES confirm:NO];}
         kc_mouse(&_motion,(int)CGEventGetIntegerValueField(e,kCGMouseEventButtonNumber),pressed,t);
     }
     _lastInput=t;
@@ -339,6 +381,7 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     if(!self.art) return;
     double t=Now(),dt=t-_previousTick;_previousTick=t;
     if(t>_nextPermissionCheck && !_menuDepth) {_nextPermissionCheck=t+2.5;[self updatePermission];}
+    if(t>=_nextFieldCheck) {_nextFieldCheck=t+.65;[self trackWord:YES confirm:NO];}
     NSPoint global=NSEvent.mouseLocation;
     NSRect r=self.pet.frame;
     double x=(global.x-NSMinX(r))*320/r.size.width,y=(NSMaxY(r)-global.y)*260/r.size.height;
@@ -399,6 +442,7 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
         [self item:[NSString stringWithFormat:@"%@　 %@ / %@ / %@",rule[2],self.art.chinese.rules[i][1],rule[0],rule[1]] menu:tricks action:@selector(play:) tag:i checked:NO];
     }
     [tricks addItem:NSMenuItem.separatorItem];[self item:@"打字触发彩蛋" menu:tricks action:@selector(toggleWords:) tag:0 checked:_motion.wordsEnabled];
+    if(!AXIsProcessTrusted()) [self item:@"启用汉字词匹配…" menu:tricks action:@selector(wordPermission:) tag:0 checked:NO];
     NSMenu *sizes=[self sub:@"桌宠大小" menu:menu];
     for(int i=0;i<3;i++) [self item:@[@"小",@"标准",@"大"][i] menu:sizes action:@selector(resizePet:) tag:i checked:_size==i];
     [self item:@"锁定桌宠（点击穿透）" menu:menu action:@selector(lockPet:) tag:0 checked:NO];
@@ -423,7 +467,11 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
         dispatch_async(dispatch_get_main_queue(),^{[self refreshStatus];});
 }
 - (void)play:(NSMenuItem *)sender {kc_play(&_motion,(int)sender.tag,Now());}
-- (void)toggleWords:(id)sender {_motion.wordsEnabled=!_motion.wordsEnabled;kc_break(&_motion);[_prefs setBool:_motion.wordsEnabled forKey:@"words"];[self refreshStatus];}
+- (void)wordPermission:(id)sender {
+    AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)@{(__bridge NSString *)kAXTrustedCheckOptionPrompt:@YES});
+    [self trackWord:YES confirm:NO];
+}
+- (void)toggleWords:(id)sender {_motion.wordsEnabled=!_motion.wordsEnabled;[self breakInput];[self trackWord:YES confirm:NO];[_prefs setBool:_motion.wordsEnabled forKey:@"words"];[self refreshStatus];}
 - (void)toggleLabels:(id)sender {_motion.labels=!_motion.labels;kc_clear_bubbles(&_motion);[_prefs setBool:_motion.labels forKey:@"labels"];[self refreshStatus];}
 - (void)togglePause:(id)sender {_paused=!_paused;[_prefs setBool:_paused forKey:@"paused"];kc_reset(&_motion);[self updatePermission];[self refreshStatus];}
 - (void)showHelp:(id)sender {
@@ -432,7 +480,7 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     NSString *version=[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
     NSAlert *help=[NSAlert new];
     help.messageText=[NSString stringWithFormat:@"爪爪 PawPaw %@",version];
-    help.informativeText=[NSString stringWithFormat:@"键鼠互动　%@\n\n拖动猫咪可移动位置，右键或点菜单栏的猫打开装扮工作室。连续敲 xiaoyu 或 fish 看猫咪抱鱼，双击猫咪看它捧心。锁定后点击可穿过猫咪，点右上角的小锁解锁。\n\n跨应用打字需要「输入监控」权限。你可以随时在桌宠菜单暂停互动。",state];
+    help.informativeText=[NSString stringWithFormat:@"键鼠互动　%@\n\n拖动猫咪可移动位置，右键或点菜单栏的猫打开装扮工作室。连续敲 xiaoyu 或 fish 看猫咪抱鱼，双击猫咪看它捧心。锁定后点击可穿过猫咪，点右上角的小锁解锁。\n\n跨应用打字需要「输入监控」权限。启用「单词彩蛋 → 启用汉字词匹配」后，输入或粘贴完整中文口令也能触发。你可以随时在桌宠菜单暂停互动。",state];
     [help addButtonWithTitle:@"好"];
     [NSApp activateIgnoringOtherApps:YES]; [help runModal];
     [self breakInput];

@@ -79,8 +79,8 @@ namespace KeyboardCat
                 var catalog=new { roles=Cat.All.Select(c=>new {id=c.Id,name=c.Name,shape=c.ShapeIndex,pattern=c.Pattern,eyes=c.Eyes}).ToArray(),
                     shapes=Cat.Shapes,patterns=Cat.Patterns,eyes=Cat.EyeNames,clothes=Outfit.Garments.Select(Outfit.Name).ToArray(),
                     hats=Outfit.Hats.Select(Outfit.Name).ToArray(),boards=BoardNames,mice=MouseNames };
-                var manifest=new { version=6,catalog=catalog,scale=Retina,steps=ReachSteps,fps=ClipFps,sprites=Sprites,clips=Clips,keys=Keys,keymap=Map,
-                    tricks=WordTrick.All.Select(x=>new object[]{x.Word,x.Pinyin,x.Label,x.Duration,x.ShortLabel}).ToArray(),
+                var manifest=new { version=7,catalog=catalog,scale=Retina,steps=ReachSteps,fps=ClipFps,sprites=Sprites,clips=Clips,keys=Keys,keymap=Map,
+                    tricks=WordTrick.All.Select(x=>new object[]{x.Word,x.Pinyin,x.Label,x.Duration,x.ShortLabel,x.SharedPose==null?null:x.SharedPose.Word}).ToArray(),
                     idles=WordTrick.Idle.Select(x=>new object[]{x.Word,x.Duration}).ToArray() };
                 JavaScriptSerializer json=new JavaScriptSerializer { MaxJsonLength=int.MaxValue };
                 File.WriteAllText(Path.Combine(folder,"Artwork.json"),json.Serialize(manifest),new UTF8Encoding(false));
@@ -262,6 +262,24 @@ namespace KeyboardCat
             a.Clips.Add(clip,heads);
         }
 
+        // The new props use existing clothed body clips. Only the foreground changes between actions.
+        static void PropAssets(Atlas a,Cat cat,string prefix,WordTrick rule)
+        {
+            Motion motion=new Motion(); motion.Tricks.Play(rule,1);
+            int count=(int)Math.Ceiling(rule.Duration*ClipFps);
+            for(int i=0;i<count;i++) {
+                double t=1+i/(double)ClipFps;
+                float breath=(float)Math.Sin(t*2.05)*(cat.Longhair?1:.62f);
+                PointF l=new PointF(132,169+breath),r=new PointF(176,171+breath);
+                TrickPose pose=TrickPose.Sample(motion.Tricks,cat,t,breath,ref l,ref r);
+                GarmentFit fit=pose.FitArms(cat,Garment.Plain,breath,ref l,ref r);
+                a.Put(prefix+"prop/"+rule.Word+"/"+i,g=>{
+                    FigureSpace(g,cat); pose.MoveBody(g);
+                    ActionForeground(g,cat,pose,l,r,fit);
+                });
+            }
+        }
+
         public void ExportMac(string folder)
         {
             using(Atlas a=new Atlas(folder))
@@ -274,8 +292,10 @@ namespace KeyboardCat
                     {
                         string outfit=prefix+(int)garment+"/";
                         ArmAssets(a,cat,garment,outfit);
-                        foreach(WordTrick rule in WordTrick.All.Concat(WordTrick.Idle)) ClipAssets(a,cat,garment,outfit,rule);
+                        foreach(WordTrick rule in WordTrick.All.Concat(WordTrick.Idle))
+                            if(rule.SharedPose==null) ClipAssets(a,cat,garment,outfit,rule);
                     }
+                    foreach(WordTrick rule in WordTrick.All) if(rule.SharedPose!=null) PropAssets(a,cat,prefix,rule);
                     Console.WriteLine(cat.Name+" exported");
                 }
                 a.Save();

@@ -150,6 +150,16 @@ namespace KeyboardCat
         public static PointF Mix(PointF a, PointF b, float t)
         { return new PointF(Mix(a.X, b.X, t), Mix(a.Y, b.Y, t)); }
 
+        public void ExactWord(ChineseWord rule,string spelling,WordEntry entry,double now,bool labels)
+        {
+            if(Private || !Tricks.Enabled || !entry.Accept(rule.Trick,false)) return;
+            Tricks.Play(rule.Trick,now);
+            if(labels) {
+                Bubbles.Clear();
+                MatchedWord=new KeyBubble {Label=spelling,Start=now,IsWord=true};
+            }
+        }
+
         public void KeyEvent(int vk, bool release, double now, bool showLabels, bool systemShortcut=false,bool syllableSeparator=false)
         {
             if (Private || vk < 0 || vk >= down.Length) return;
@@ -210,7 +220,7 @@ namespace KeyboardCat
             heldButtons=(heldButtons | (flags & pressMask)) & ~((flags >> 1) & pressMask);
             MouseHeld=heldButtons!=0;
             if ((flags & (pressMask | wheelMask)) == 0) return;
-            Tricks.BreakSequence();
+            Tricks.Entry.Closed=true; Tricks.BreakSequence();
             MouseSide=(flags & 1)!=0 ? 0 : (flags & 4)!=0 ? 1 : 2;
             LastClick = LastMouse = now;
         }
@@ -250,7 +260,7 @@ namespace KeyboardCat
             typingUntil=double.NegativeInfinity;
             Array.Clear(down, 0, down.Length);
             ClearBubbles();
-            Tricks.BreakSequence();
+            Tricks.ClearEntry();
         }
 
         public void Reset()

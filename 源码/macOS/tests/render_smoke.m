@@ -16,6 +16,10 @@ int main(int argc,const char **argv) {
         NSBundle *bundle=[NSBundle bundleWithPath:[NSString stringWithUTF8String:argv[1]]];
         PetArt *art=[[PetArt alloc] initWithBundle:bundle];
         assert(art && art.tricks.count==KC_WORDS && art.chinese.rules.count==KC_WORDS);
+        NSInteger start=9;
+        assert([art.chinese matchSuffix:@"蜜雪冰城甜蜜蜜！" endingAt:&start]==18 && start==1);
+        start=4;assert([art.chinese matchSuffix:@"乾飯時間" endingAt:&start]==21 && start==0);
+        start=2;assert([art.chinese matchSuffix:@"小雨" endingAt:&start]<0);
         const char *aliases[KC_ALIASES]; double durations[KC_ACTIONS];
         for(int i=0;i<KC_WORDS;i++){
             aliases[i*2]=[art.tricks[i][0] UTF8String];aliases[i*2+1]=[art.tricks[i][1] UTF8String];
@@ -57,9 +61,16 @@ int main(int argc,const char **argv) {
             assert(![withChinese isEqual:pixels(art,role,&m,typedAt+.1)]);
             m.pinyinAliases=art.chinese.pinyinAliases;
             KCMotion dance;kc_init(&dance,aliases,durations,art.chinese.pinyinAliases);
-            kc_play(&dance,KC_WORDS-1,1.0);
+            kc_play(&dance,8,1.0);
             NSData *dribble=pixels(art,role,&dance,1.35);
             assert(![dribble isEqual:pixels(art,role,&dance,2.62)]);
+            for(int egg=9;egg<KC_WORDS;egg++) {
+                KCWordGate turn={0};kc_reset(&dance);dance.labels=false;
+                assert(kc_exact_word(&dance,&turn,egg*2,1));
+                NSData *frame=pixels(art,role,&dance,1.9);
+                kc_reset(&dance);int base[]={4,2,0};kc_play(&dance,base[egg-9],1);
+                assert(![frame isEqual:pixels(art,role,&dance,1.9)]);
+            }
             kc_privacy(&m,true,1.66);
             assert(m.wordBubble<0 && m.trick<0 && kc_cover(&m,2)>.99);
             assert(![withoutWord isEqual:pixels(art,role,&m,2)]);

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace KeyboardCat
 {
-    internal enum TrickKind { None, Wave, Love, Fish, Sleep, Dance, Fortune, Toast, Freeze, Basketball, Groom, ChaseTail, Listen }
+    internal enum TrickKind { None, Wave, Love, Fish, Sleep, Dance, Fortune, Toast, Freeze, Basketball, SweetCone, RiceBowl, TripleTap, Groom, ChaseTail, Listen }
 
     internal sealed class WordTrick
     {
@@ -11,10 +11,11 @@ namespace KeyboardCat
         public readonly string Word, Pinyin, Label, ShortLabel;
         public bool IsIdle {get { return Pinyin==null; }}
         public readonly double Duration;
+        public readonly WordTrick SharedPose;
 
-        WordTrick(TrickKind kind,string word,string pinyin,string label,string shortLabel,double duration)
+        WordTrick(TrickKind kind,string word,string pinyin,string label,string shortLabel,double duration,WordTrick sharedPose=null)
         {
-            Kind=kind; Word=word; Pinyin=pinyin; Label=label; ShortLabel=shortLabel; Duration=duration;
+            Kind=kind; Word=word; Pinyin=pinyin; Label=label; ShortLabel=shortLabel; Duration=duration; SharedPose=sharedPose;
         }
 
         public static readonly WordTrick Wave=new WordTrick(TrickKind.Wave,"hello","nihao","挥爪打招呼","挥爪",2.2);
@@ -26,12 +27,34 @@ namespace KeyboardCat
         public static readonly WordTrick Toast=new WordTrick(TrickKind.Toast,"jingzijiyibei","cheers","敬自己一杯 · 举杯","举杯",3.1);
         public static readonly WordTrick Freeze=new WordTrick(TrickKind.Freeze,"yingkong","freeze","硬控 · 原地定格","定格",2.7);
         public static readonly WordTrick Basketball=new WordTrick(TrickKind.Basketball,"jinitaimei","jntm","鸡你太美 · 运球舞","运球舞",3.8);
-        public static readonly WordTrick[] All={Wave,Love,Fish,Sleep,Dance,Fortune,Toast,Freeze,Basketball};
+        public static readonly WordTrick SweetCone=new WordTrick(TrickKind.SweetCone,"mixuebingchengtianmimi","mxbctmm","蜜雪冰城甜蜜蜜 · 甜筒摇摆","甜筒摇摆",Dance.Duration,Dance);
+        public static readonly WordTrick RiceBowl=new WordTrick(TrickKind.RiceBowl,"dinnertime","ganfanshijian","干饭时间 · 捧碗扒饭","捧碗扒饭",Fish.Duration,Fish);
+        public static readonly WordTrick TripleTap=new WordTrick(TrickKind.TripleTap,"triplelike","yijiansanlian","一键三连 · 拍爪三连","拍爪三连",Wave.Duration,Wave);
+        public static readonly WordTrick[] All={Wave,Love,Fish,Sleep,Dance,Fortune,Toast,Freeze,Basketball,SweetCone,RiceBowl,TripleTap};
         public static readonly WordTrick[] Idle={
             new WordTrick(TrickKind.Groom,"groom",null,"抹抹脸","洗脸",3.0),
             new WordTrick(TrickKind.Listen,"listen",null,"侧耳听动静","侧耳",2.65),
             new WordTrick(TrickKind.ChaseTail,"tailchase",null,"回头扑尾巴","扑尾巴",3.05)
         };
+    }
+
+    // One edit can arrive as both physical spelling and committed text, in either order.
+    internal sealed class WordEntry
+    {
+        uint spellings,words;
+        public bool Closed, Typed;
+        public bool Accept(WordTrick trick,bool spelling)
+        {
+            uint bit=1u<<(int)trick.Kind;
+            if(spelling) {
+                if((words&bit)!=0) {words&=~bit;return false;}
+                spellings|=bit;
+            } else {
+                if((spellings&bit)!=0) {spellings&=~bit;return false;}
+                words|=bit;
+            }
+            return true;
+        }
     }
 
     internal sealed class TrickPlayer
@@ -46,6 +69,7 @@ namespace KeyboardCat
         static readonly Prefix start=BuildMatcher();
         Prefix position=start, pinyinPosition=start;
         bool syllableStarted;
+        public WordEntry Entry=new WordEntry();
         IntPtr foreground;
         double lastLetter=double.NegativeInfinity;
         WordTrick active,pending;
@@ -56,7 +80,7 @@ namespace KeyboardCat
         public bool Enabled
         {
             get { return enabled; }
-            set { enabled=value; BreakSequence(); }
+            set { enabled=value; ClearEntry(); }
         }
 
         // Build transitions using only the fixed vocabulary. A keypress advances one state.
@@ -95,24 +119,34 @@ namespace KeyboardCat
             lastLetter=double.NegativeInfinity;
         }
 
+        public void ClearEntry()
+        {
+            Entry=new WordEntry();
+            BreakSequence();
+        }
+
         public void SetForeground(IntPtr window)
         {
             if (foreground==window) return;
             foreground=window;
-            BreakSequence();
+            ClearEntry();
         }
 
         public string Observe(int key,double now,bool shortcut,bool syllableSeparator)
         {
             if (!enabled) return null;
-            if (shortcut) { BreakSequence(); return null; }
+            if (shortcut) { ClearEntry(); return null; }
             if (key==0x10 || key==0xa0 || key==0xa1 || key==0x14) return null; // Shift and Caps Lock
             if (key<'A' || key>'Z') {
+                if(key==0x1b || key==8 || key==0x2e || key==9 || (key>=0x21 && key<=0x28)) ClearEntry();
+                else Entry.Closed=true;
                 position=start;
                 if (!syllableSeparator || !syllableStarted) BreakSequence();
                 syllableStarted=false;
                 return null;
             }
+            if(Entry.Closed || (Entry.Typed && now-lastLetter>8)) Entry=new WordEntry();
+            Entry.Typed=true;
             double gap=now-lastLetter;
             if (gap>2.5) position=start;
             if (gap>8) pinyinPosition=start;
@@ -122,6 +156,7 @@ namespace KeyboardCat
             // Only registered pinyin aliases may span a syllable separator.
             Prefix hit=pinyinPosition.IsPinyin?pinyinPosition:position;
             if (hit.Match==null) return null;
+            if(!Entry.Accept(hit.Match,true)) {BreakSequence();return null;}
             Play(hit.Match,now);
             return hit.Label;
         }

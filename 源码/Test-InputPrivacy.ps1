@@ -96,7 +96,9 @@ try {
         @('NIHAO','你好','Wave'), @('AIXIN','爱心','Love'), @('XIAOYU','小鱼','Fish'),
         @('WANAN','晚安','Sleep'), @('TIAOWU','跳舞','Dance'), @('LAICAI','来财','Fortune'),
         @('JINGZIJIYIBEI','敬自己一杯','Toast'), @('YINGKONG','硬控','Freeze'),
-        @('JINITAIMEI','鸡你太美','Basketball'), @('JNTM','鸡你太美','Basketball')
+        @('JINITAIMEI','鸡你太美','Basketball'), @('JNTM','鸡你太美','Basketball'),
+        @('MIXUEBINGCHENGTIANMIMI','蜜雪冰城甜蜜蜜','SweetCone'), @('MXBCTMM','蜜雪冰城甜蜜蜜','SweetCone'),
+        @('GANFANSHIJIAN','干饭时间','RiceBowl'), @('YIJIANSANLIAN','一键三连','TripleTap')
     )
     foreach($context in 'Ordinary','WeChatMain') {
         Set-TestFocus $context 3
@@ -127,6 +129,31 @@ try {
             Assert-True ($motion.MatchedWord.Start -eq $started -and $null -eq $motion.Tricks.Current($started+$duration+.01)) 'Repeats and candidate selection must not replay or queue the trick'
         }
     }
+    $catalog=$assembly.GetType('KeyboardCat.ChineseWord').GetField('All').GetValue($null)
+    Assert-True ($catalog.Count -eq 12) 'All twelve public tricks have fixed Chinese words'
+    $fish=$catalog | Where-Object {$_.Simplified -eq '小鱼'}
+    $motion.Reset()
+    $time=2.0
+    foreach($c in 'XIAOYU'.ToCharArray()) {
+        $motion.KeyEvent([int]$c,$false,$time,$true)
+        $motion.KeyEvent([int]$c,$true,$time+.01,$true)
+        $time+=.05
+    }
+    $original=$motion.MatchedWord.Start
+    $motion.ExactWord($fish,'小魚',$motion.Tricks.Entry,$time,$true)
+    Assert-True ($motion.MatchedWord.Start -eq $original -and $null -eq $motion.Tricks.Current(6)) 'Selecting the Han word for a pinyin hit must not replay'
+    $motion.Reset()
+    $motion.ExactWord($fish,'小魚',$motion.Tricks.Entry,1,$true)
+    Assert-True ($motion.MatchedWord.Label -eq '小魚') 'A literal word without pinyin can trigger'
+    $time=1.001
+    foreach($c in 'XIAOYU'.ToCharArray()) {
+        $motion.KeyEvent([int]$c,$false,$time,$true,$false,$false)
+        $motion.KeyEvent([int]$c,$true,$time+.0001,$true,$false,$false)
+        $time+=.001
+    }
+    Assert-True ($motion.MatchedWord.Start -eq 1 -and $null -eq $motion.Tricks.Current(4)) 'Late spelling for a literal hit is consumed'
+    $motion.ExactWord($fish,'小鱼',$motion.Tricks.Entry,1.01,$true)
+    Assert-True ($motion.MatchedWord.Start -eq 1.01) 'A second occurrence of the same literal can trigger immediately'
     # Test retained syllables independently of which input languages are installed on a CI runner.
     $motion.Reset()
     $time=1.0
@@ -167,8 +194,19 @@ try {
     Assert-True (!(Send-TestKey 'Q' $false 2.5) -and $motion.Private) 'Losing metadata in the same password window must preserve privacy'
     Set-TestFocus WeChatMain 2.6
     Assert-True (!(Send-TestKey 'F' $false 2.7) -and $motion.Private) 'An opaque main window must not unlock a known password context'
-    Write-Output 'Passed all nine pinyin tricks on final keydown, selection and repeat deduplication, WeChat, and protected input.'
+    Write-Output 'Passed all twelve word tricks on final keydown, selection and repeat deduplication, WeChat, and protected input.'
 } finally {
     if ($pet) { $pet.Dispose() }
     if (Test-Path -LiteralPath $settingsPath) { Remove-Item -LiteralPath $settingsPath }
 }
+
+$fixture=Join-Path ([IO.Path]::GetTempPath()) ('PawPaw-caret-'+[guid]::NewGuid().ToString('N')+'.exe')
+$csc=Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+if(!(Test-Path $csc)) {$csc=Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe'}
+$wpf=Join-Path (Split-Path -Parent $csc) 'WPF'
+try {
+    & $csc /nologo /codepage:65001 "/lib:$wpf" /r:WindowsBase.dll,PresentationFramework.dll,PresentationCore.dll,UIAutomationClient.dll,UIAutomationTypes.dll,System.Xaml.dll "/out:$fixture" (Join-Path $PSScriptRoot '..\scripts\test-chinese-caret.cs')
+    if($LASTEXITCODE){throw 'Compiling the Chinese caret fixture failed'}
+    & $fixture $exe
+    if($LASTEXITCODE){throw 'Native Chinese input regression'}
+} finally {if(Test-Path -LiteralPath $fixture){Remove-Item -LiteralPath $fixture}}

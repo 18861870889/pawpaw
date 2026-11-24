@@ -3,10 +3,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-enum { KC_WORDS=9, KC_ALIASES=KC_WORDS*2, KC_IDLE_COUNT=3, KC_ACTIONS=KC_WORDS+KC_IDLE_COUNT };
+enum { KC_WORDS=12, KC_ALIASES=KC_WORDS*2, KC_IDLE_COUNT=3, KC_ACTIONS=KC_WORDS+KC_IDLE_COUNT };
 #define KC_WORD_BUBBLE_SECONDS 1.55
 
 typedef enum { KCBreakWord, KCKeepWord, KCKeepPinyin } KCWordBoundary;
+
+typedef struct { uint32_t spellings,words; } KCWordGate;
+bool kc_word_accept(KCWordGate *gate,int rule,bool spelling);
 
 typedef struct { int cap,hardware; double start,released; } KCPaw;
 typedef struct { int hardware,cap,lane; double start; } KCBubble;
@@ -31,6 +34,8 @@ void kc_reset(KCMotion *m);
 void kc_play(KCMotion *m,int trick,double now);
 int kc_event_letter(int physicalLetter,uint16_t character,unsigned count);
 void kc_key(KCMotion *m,int hardware,int cap,int hand,int letter,bool release,bool repeat,bool shortcut,KCWordBoundary boundary,double now);
+void kc_key_in_entry(KCMotion *m,int hardware,int cap,int hand,int letter,bool release,bool repeat,bool shortcut,KCWordBoundary boundary,double now,KCWordGate *gate);
+bool kc_exact_word(KCMotion *m,KCWordGate *gate,int match,double now);
 void kc_mouse(KCMotion *m,int button,bool pressed,double now);
 void kc_step(KCMotion *m,double t,double dt,double dx,double dy,bool follow);
 double kc_cover(const KCMotion *m,double t);

@@ -8,7 +8,7 @@ namespace KeyboardCat
     {
         partial struct TrickPose
         {
-            public float Smile {get {return Kind==TrickKind.Fish || Kind==TrickKind.Love || Kind==TrickKind.Toast || Kind==TrickKind.Groom ? Weight : 0;}}
+            public float Smile {get {return Kind==TrickKind.Fish || Kind==TrickKind.RiceBowl || Kind==TrickKind.Love || Kind==TrickKind.Toast || Kind==TrickKind.Groom ? Weight : 0;}}
 
             public bool InFront(int hand) {return FrontHand==hand && Weight>.01f;}
 
@@ -196,6 +196,9 @@ namespace KeyboardCat
                 TrickPose.TurnPaw(right,fit.Shoulder(false),p.RightTurn);
             DrawTrickEffects(g,cat,p,wave);
             DrawMemeProp(g,cat,p);
+            if(p.Kind==TrickKind.SweetCone) DrawSweetCone(g,cat,p,wave);
+            if(p.Kind==TrickKind.RiceBowl) DrawRiceBowl(g,p);
+            if(p.Kind==TrickKind.TripleTap) DrawTripleTap(g,cat,p,wave);
             if(p.InFront(1) || p.InFront(2)) {
                 bool isLeft=p.FrontHand==1;
                 GraphicsState elbow=g.Save();g.TranslateTransform(p.FrontOffset.X,p.FrontOffset.Y);

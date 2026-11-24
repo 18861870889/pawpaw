@@ -44,6 +44,8 @@ namespace KeyboardCat
         bool loaded, listening, pressing, dragging, placing, disposed;
         PasswordFocus focusProbe;
         IntPtr inputChild;
+        ExactWordMonitor exactWords;
+        double nextWordFocus;
         double nextFocusCheck;
         bool waitForKeyRelease;
         FieldPrivacy inputMode;
@@ -153,7 +155,7 @@ namespace KeyboardCat
                 WordTrick trick=entry;
                 ToolStripMenuItem item=new ToolStripMenuItem(trick.Label);
                 item.ShortcutKeyDisplayString=ChineseWord.For(trick).Simplified+" / "+trick.Word+" / "+trick.Pinyin;
-                item.ToolTipText="连续敲完拼音或英文即触发，也可以点击试演";
+                item.ToolTipText="敲完拼音、英文或输入相应汉字即可触发，点击可试演";
                 item.Click+=delegate { BeginInvoke((MethodInvoker)delegate { PlayTrick(trick); }); };
                 trickMenu.DropDownItems.Add(item);
             }
@@ -374,11 +376,15 @@ namespace KeyboardCat
                 return;
             }
             // Pausing stops routing input even if Windows already removed the registration.
+            if(exactWords!=null) {exactWords.Dispose();exactWords=null;}
             motion.Reset(); priorCursor=Cursor.Position;
             retryInputAt=double.PositiveInfinity; retryInputDelay=2;
             listening=enable;waitForKeyRelease=false;inputMode=FieldPrivacy.Unknown;
             inputWindow=protectedWindow=IntPtr.Zero;
-            if(enable) {focusProbe=new PasswordFocus();nextFocusCheck=0;}
+            if(enable) {
+                focusProbe=new PasswordFocus();nextFocusCheck=0;
+                exactWords=new ExactWordMonitor(ReceiveExactWord);
+            }
             else {if(focusProbe!=null) focusProbe.Dispose();focusProbe=null;motion.SetPrivacy(false,Now);}
         }
 
@@ -463,6 +469,7 @@ namespace KeyboardCat
                 PointF eyes=settings.Cat.EyeCenter;
                 motion.Step(now,elapsed,(p.X-Left)/scale-eyes.X,(p.Y-Top)/scale-eyes.Y,inputMode==FieldPrivacy.GameSurface);
             }
+            TrackWordField(false,false);
             bool allowIdle=!motion.Private && !pressing && !dragging && !actions.Visible && !SettingsFocused &&
                 !motion.MouseHeld && motion.Left.Key==null && motion.Right.Key==null;
             // Received input already restarts the clock; some desktops generate unrelated activity continuously.
@@ -565,6 +572,8 @@ namespace KeyboardCat
             IntPtr child=PasswordFocus.FocusedChild(foreground);
             if(foreground!=inputWindow || child!=inputChild || status!=inputMode) motion.ClearInput();
             inputMode=status;inputWindow=foreground;inputChild=child;
+            TrackWordField(now>=nextWordFocus,false);
+            if(now>=nextWordFocus) nextWordFocus=now+.40;
             if(status==FieldPrivacy.Unknown) return;
             bool unconfirmedField=status==FieldPrivacy.ActivityOnly || status==FieldPrivacy.WeChatMain;
             if(unconfirmedField && motion.Private && (foreground==IntPtr.Zero || foreground==protectedWindow)) return;
@@ -572,6 +581,26 @@ namespace KeyboardCat
             if(motion.Private && !secure) waitForKeyRelease=Native.AnyKeyboardKeyHeld();
             protectedWindow=secure?foreground:IntPtr.Zero;
             motion.SetPrivacy(secure,now);
+        }
+
+        bool CanReadWord {
+            get {return listening && !disposed && !settings.Paused && motion.Tricks.Enabled && !motion.Private &&
+                !waitForKeyRelease && !dragging && !actions.Visible && !SettingsFocused && inputMode==FieldPrivacy.Ordinary;}
+        }
+        void TrackWordField(bool refresh,bool input)
+        {
+            if(exactWords==null) return;
+            bool allowed=CanReadWord;
+            exactWords.Follow(allowed?inputWindow:IntPtr.Zero,allowed?inputChild:IntPtr.Zero,motion.Tricks.Entry,refresh,input && allowed);
+        }
+        void ReceiveExactWord(ExactWordMonitor source,int revision,WordEntry entry,ExactWordOccurrence word)
+        {
+            try {BeginInvoke((MethodInvoker)delegate {
+                if(source!=exactWords || !CanReadWord || !source.Current(revision) || inputWindow!=Native.GetForegroundWindow() ||
+                   inputChild!=PasswordFocus.FocusedChild(inputWindow)) return;
+                RefreshPrivacy(true,Now);
+                if(CanReadWord && source.Current(revision)) motion.ExactWord(word.Rule,word.Text,entry,Now,settings.Labels);
+            });} catch(InvalidOperationException) {}
         }
 
         bool HandleKey(Native.RawPayload data,double now)
@@ -594,6 +623,14 @@ namespace KeyboardCat
             bool syllableSeparator=!release && !shortcut && motion.Tricks.Enabled && inputMode!=FieldPrivacy.GameSurface &&
                 ChineseInput.IsSyllableSeparator(key,inputWindow,inputChild);
             motion.KeyEvent(key,release,now,settings.Labels,shortcut,syllableSeparator);
+            if(!release) {
+                bool confirm=syllableSeparator || key==0x20 || key==0x0d || key==0xe7 || key==0xe5 ||
+                    (key>=0xbc && key<=0xbe) || (shortcut && (key=='V' || key==0x2d));
+                WordEntry turn=motion.Tricks.Entry;
+                bool paste=shortcut && (key=='V' || key==0x2d);
+                TrackWordField(key==9,paste || (turn.Typed && confirm));
+                if(confirm) turn.Typed=false;
+            }
             return true;
         }
 
@@ -606,6 +643,7 @@ namespace KeyboardCat
             } else {
                 if(packet.Data.MouseButtons==0) return;
                 motion.MouseButtons(packet.Data.MouseButtons,now);
+                if((packet.Data.MouseButtons&1)!=0) TrackWordField(true,false);
             }
             lastInput=now;
             if(timer.Interval!=25) timer.Interval=25;
@@ -649,6 +687,7 @@ namespace KeyboardCat
                 timer.Dispose(); tray.Visible=false; tray.Dispose();
                 if(trayIcon!=null) trayIcon.Dispose();
                 if(focusProbe!=null) focusProbe.Dispose();
+                if(exactWords!=null) exactWords.Dispose();
                 if(unlockBadge!=null) unlockBadge.Dispose();
                 lockedActions.Dispose(); actions.Dispose();
                 foreach(Bitmap p in portraits) p.Dispose();

@@ -12,7 +12,7 @@ Windows 使用 .NET Framework 和 WinForms 绘制桌宠。Mac 使用 AppKit 和 
 .\scripts\test-window-lock.ps1
 ```
 
-输出为 `PawPaw-Windows.exe`。输入测试使用人工构造的事件，覆盖微信输入、游戏键位、隐私状态和彩蛋。锁定测试将一个独立窗口放在猫咪后方，检查点击目标及解锁后的恢复。
+输出为 `PawPaw-Windows.exe`。输入测试用构造的按键事件验证微信、游戏、隐私状态和彩蛋。独立的原生编辑框还验证简繁上屏、文字变化通知、光标位置和重复命中。锁定测试将一个独立窗口放在猫咪后方，检查点击目标及解锁后的恢复。
 
 ## macOS
 
