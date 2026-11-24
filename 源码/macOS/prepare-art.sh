@@ -5,7 +5,7 @@ dest=${1:?Usage: prepare-art.sh DESTINATION}
 mkdir -p "$dest"
 archive=${PAWPAW_ART_ARCHIVE:-}
 if [ -z "$archive" ]; then
-    base=https://github.com/18861870889/pawpaw/releases/download/v2.2.0
+    base=https://github.com/18861870889/pawpaw/releases/download/v2.2.1
     filename=PawPaw-macOS-universal.zip
     archive="$dest/$filename"
     curl --proto '=https' --proto-redir '=https' -fsSL --retry 3 "$base/SHA256SUMS.txt" -o "$dest/checksums"

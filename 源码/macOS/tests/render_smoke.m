@@ -44,7 +44,10 @@ int main(int argc,const char **argv) {
                 assert(clip.count==(NSUInteger)ceil([rule[3] doubleValue]*fps));
                 for(NSArray *frame in clip) {
                     assert(frame.count==25);
-                    if(garment) assert(atlas[@"sprites"][[outfit stringByAppendingFormat:@"posture/%d",[frame[24] intValue]]]);
+                    if(garment) {
+                        NSString *posture=[outfit stringByAppendingFormat:@"posture/%d",[frame[24] intValue]];
+                        assert(atlas[@"sprites"][posture]);
+                    }
                 }
                 if(egg==11) assert([clip[(int)lround(1.08*fps)][23] doubleValue]>.94 && [clip[(int)lround(1.85*fps)][23] doubleValue]==0);
             }
