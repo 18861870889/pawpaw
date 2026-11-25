@@ -115,8 +115,11 @@ int main(int argc,const char **argv) {
         assert([art previewForRole:model]);
         kc_play(&still,11,1);
         model[@"build"]=@0;model[@"pattern"]=@0;
-        NSData *neutral=pixels(art,model,&still,2.12);
-        model[@"pattern"]=black[@"pattern"];NSData *dark=pixels(art,model,&still,2.12);
+        // Render the closest authored frame. At 24 fps the peak at 1.12 s lands on frame 27.
+        // Sampling its timestamp directly floors to frame 26, when the translucent pads still show fur.
+        double contact=1+(lround(1.12*fps)+.25)/fps;
+        NSData *neutral=pixels(art,model,&still,contact);
+        model[@"pattern"]=black[@"pattern"];NSData *dark=pixels(art,model,&still,contact);
         // The forward palm has neutral fur between its pink pads. Only the fur picks up the coat.
         const unsigned char *base=neutral.bytes,*tinted=dark.bytes;int darkened=0,pink=0;
         for(int y=115*2;y<131*2;y++) for(int x=147*2;x<171*2;x++) {
@@ -125,6 +128,7 @@ int main(int argc,const char **argv) {
             if(base[i]>195 && base[i+1]>185 && base[i+2]>175 && base[i]-tinted[i]>110 && tinted[i+2]<140) darkened++;
             if(base[i]>190 && base[i]-base[i+1]>44 && abs((int)base[i]-(int)tinted[i])<=2) pink++;
         }
+        if(darkened<=100 || pink<=100) fprintf(stderr,"Forward palm: %d coloured fur pixels and %d pink pad pixels at %.5f s\\n",darkened,pink,contact);
         assert(darkened>100 && pink>100);
         assert(!memcmp(base+232*2*640*4,tinted+232*2*640*4,640*4));
         puts("Eleven cats, five builds, coat-coloured paws, clothes, choreography and secure input passed.");
