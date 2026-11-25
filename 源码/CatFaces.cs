@@ -238,7 +238,7 @@ namespace KeyboardCat
             g.TranslateTransform(0,noseY-97);
             SoftOval(g,cat.Cream,124,91,30,20);
             SoftOval(g,cat.Cream,148,91,30,20);
-            Color mouth = C(0x796b65);
+            Color mouth = C(cat.Pattern==Cat.Black?0xb2a1a0:0x796b65);
             using (GraphicsPath nose = Shape(145.2f,94,
                 147,92.7f,149.2f,93.4f,151,93.7f, 153,93.1f,156,92.9f,157.3f,94.1f,
                 157.6f,96,155.5f,97.9f,152.4f,100, 151.8f,100.7f,150.8f,100.8f,150.3f,100.1f,

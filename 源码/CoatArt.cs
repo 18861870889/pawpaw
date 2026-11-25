@@ -20,6 +20,14 @@ namespace KeyboardCat
         {
             switch(cat.Pattern)
             {
+                case Cat.Black:
+                    SoftOval(g,Color.FromArgb(130,C(0x797987)),100,32,93,68);
+                    break;
+                case Cat.White:
+                    using(SolidBrush snow=new SolidBrush(C(0xf8f7f3))) g.FillRectangle(snow,55,0,200,145);
+                    SoftOval(g,Color.FromArgb(138,C(0xcfd4dc)),80,66,42,57);
+                    SoftOval(g,Color.FromArgb(126,C(0xdadce0)),183,61,39,61);
+                    break;
                 case 1:
                     CoatPatch(g,0xf5c481,0xd89151,84,4, 113,1,196,2,219,13, 225,38,216,70,210,87,
                         201,77,195,72,185,72, 174,72,161,67,151,57, 145,67,132,73,119,73,
@@ -89,6 +97,9 @@ namespace KeyboardCat
         {
             int dark,light;
             switch(cat.Pattern) {
+                case 1: dark=0xd39158;light=0xf5ce91;break;
+                case 3: dark=0xdedbd4;light=0xfcf8ec;break;
+                case Cat.White: dark=0xe0e3e5;light=0xfffdf6;break;
                 case 4: dark=0xb59b90;light=0xf4e5cd;break;
                 case 5: dark=0x8291a2;light=0xb6c4cf;break;
                 case 6: dark=0x91999e;light=0xd9dddb;break;
@@ -102,6 +113,15 @@ namespace KeyboardCat
             GraphicsState saved=g.Save();
             g.SetClip(body,CombineMode.Intersect);
             SoftOval(g,Color.FromArgb(150,C(light)),115,139,76,69);
+            if(cat.Pattern==3) {
+                CoatPatch(g,0xeab87d,0xc88a55,85,129, 101,116,122,122,130,140, 139,154,131,169,117,177, 107,184,98,179,89,171, 82,159,79,142,85,129);
+                CoatPatch(g,0x4e4d57,0x70646a,190,122, 213,119,229,140,227,163, 223,181,212,192,196,190, 205,177,197,163,188,157, 176,147,178,133,190,122);
+            }
+            if(cat.Pattern==1) for(int j=0;j<3;j++) {
+                float y=141+j*9;
+                Curve(g,C(0xb4794d),2.5f,96,y-4,103,y,109,y+1,117-j,y+2);
+                Curve(g,C(0xb4794d),2.5f,219,y-6,211,y-1,206,y+1,199+j,y+2);
+            }
             if(cat.Pattern==6 || cat.Pattern==8 || cat.Pattern==9)
                 for(int i=0;i<3;i++) Curve(g,Color.FromArgb(130,C(dark)),2.5f,203,140+i*8,211,137+i*8,217,134+i*8,224,130+i*8);
             g.Restore(saved);
@@ -112,6 +132,8 @@ namespace KeyboardCat
             if(cat.Pattern==0) return;
             Color near,far;
             switch(cat.Pattern) {
+                case Cat.Black: near=cat.Fur;far=cat.Shade;break;
+                case Cat.White: near=C(0xf9f7f0);far=C(0xd9dce0);break;
                 case 1: near=C(0xf3c58c);far=C(0xc58553);break;
                 case 2: near=C(0x999399);far=C(0x575866);break;
                 case 3: near=C(0xe1ac78);far=C(0x69616a);break;

@@ -430,8 +430,12 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     NSMenu *cats=[self sub:@"换只猫咪" menu:menu];
     for(NSInteger i=0;i<(NSInteger)_studio.roles.count;i++) {
         NSDictionary *role=_studio.roles[i];
-        [self item:role[@"name"] menu:cats action:@selector(selectCat:) tag:i checked:_studio.selected==i].image=[self.art portraitForRole:role size:20];
+        [self item:[_studio menuNameForRole:role] menu:cats action:@selector(selectCat:) tag:i checked:_studio.selected==i].image=[self.art portraitForRole:role size:20];
     }
+    NSMenu *builds=[self sub:@"猫咪体型" menu:menu];
+    NSArray *profiles=_studio.catalog[@"builds"];
+    for(NSInteger i=0;i<(NSInteger)profiles.count;i++)
+        [self item:profiles[i][@"name"] menu:builds action:@selector(buildFromMenu:) tag:i checked:i==[_studio.role[@"build"] integerValue]];
     [self item:@"装扮工作室…" menu:menu action:@selector(openCloset:) tag:0 checked:NO];
     NSMenu *looks=[self sub:@"桌宠画风" menu:menu];
     [self item:@"猫咪画报" menu:looks action:@selector(lookFromMenu:) tag:1 checked:self.art.printLook];
@@ -508,6 +512,7 @@ static CGEventRef listenEvent(CGEventTapProxy proxy,CGEventType type,CGEventRef 
     self.art.printLook=value;[_prefs setBool:value forKey:@"printLook"];
     [_press synchronize];[self refreshStatus];_lastRender=0;
 }
+- (void)buildFromMenu:(NSMenuItem *)sender {[_studio setBuild:sender.tag];[self outfitChanged];}
 - (void)lookFromMenu:(NSMenuItem *)sender {[self applyPrint:sender.tag!=0];}
 - (void)chooseRoleIndex:(NSInteger)index {[_studio select:index];[self roleChanged];}
 - (void)editCurrentRole:(BOOL)editing {

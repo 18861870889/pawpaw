@@ -9,7 +9,9 @@
 @property(nonatomic,readonly) BOOL canEdit;
 - (instancetype)initWithCatalog:(NSDictionary *)catalog preferences:(NSUserDefaults *)prefs;
 - (void)select:(NSInteger)index;
+- (void)setBuild:(NSInteger)index;
 - (void)wear:(NSInteger)clothes hat:(NSInteger)hat board:(NSInteger)board mouse:(NSInteger)mouse;
+- (NSString *)menuNameForRole:(NSDictionary *)role;
 - (BOOL)nameAvailable:(NSString *)name forID:(NSString *)identifier;
 - (void)storeRole:(NSDictionary *)role;
 - (void)removeCurrentRole;

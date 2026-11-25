@@ -153,7 +153,7 @@ typedef NS_ENUM(NSInteger,PressKind) {PressTab,PressSwitch,PressQuiet,PressPlay,
     NSTextField *_name,*_detail,*_outfitLine,*_deskLine,*_scope;
     PressButton *_edit,*_reset,*_print,*_classic,*_playButton;
     NSMenu *_trickMenu;
-    NSPopUpButton *_roles;
+    NSPopUpButton *_roles,*_builds;
     NSMutableArray<PressButton *> *_tabs;
     NSMutableArray<NSArray<PressButton *> *> *_cards;
     NSMutableArray<NSImage *> *_covers;
@@ -168,7 +168,7 @@ typedef NS_ENUM(NSInteger,PressKind) {PressTab,PressSwitch,PressQuiet,PressPlay,
 - (instancetype)initWithModel:(PetStudio *)studio art:(PetArt *)art {
     self=[super init];if(!self) return nil;
     _studio=studio;_art=art;_tabs=[NSMutableArray array];_cards=[NSMutableArray array];_covers=[NSMutableArray array];
-    NSSize size=NSMakeSize(782,520);NSRect screen=(NSScreen.mainScreen ?: NSScreen.screens.firstObject).visibleFrame;
+    NSSize size=NSMakeSize(782,555);NSRect screen=(NSScreen.mainScreen ?: NSScreen.screens.firstObject).visibleFrame;
     _panel=[[PressPanel alloc] initWithContentRect:NSMakeRect(0,0,fmin(size.width,screen.size.width),fmin(size.height,screen.size.height-32))
         styleMask:NSWindowStyleMaskTitled|NSWindowStyleMaskClosable|NSWindowStyleMaskUtilityWindow backing:NSBackingStoreBuffered defer:NO];
     _panel.title=@"爪爪 PawPaw · 装扮工作室";_panel.level=NSFloatingWindowLevel;_panel.releasedWhenClosed=NO;_panel.hidesOnDeactivate=NO;
@@ -200,10 +200,14 @@ typedef NS_ENUM(NSInteger,PressKind) {PressTab,PressSwitch,PressQuiet,PressPlay,
     _outfitLine=label(page,@"",[NSFont systemFontOfSize:13],NSMakeRect(36,420,310,21));_outfitLine.textColor=color(paper);
     _deskLine=label(page,@"",[NSFont systemFontOfSize:13],NSMakeRect(380,420,376,21));
     label(page,@"角色",[NSFont systemFontOfSize:13],NSMakeRect(24,448,46,20));
-    _roles=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(23,472,137,31) pullsDown:NO];
+    _roles=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(23,469,164,31) pullsDown:NO];
     _roles.target=self;_roles.action=@selector(role:);[_roles setAccessibilityLabel:@"选择角色"];[page addSubview:_roles];
-    [self button:@"新建角色…" kind:PressQuiet rect:NSMakeRect(169,472,89,32) action:@selector(edit:) on:page];
-    _edit=[self button:@"编辑角色…" kind:PressQuiet rect:NSMakeRect(264,472,92,32) action:@selector(edit:) on:page];
+    label(page,@"体型",[NSFont systemFontOfSize:13],NSMakeRect(197,448,60,20));
+    _builds=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(196,469,161,31) pullsDown:NO];
+    [_builds addItemsWithTitles:[_studio.catalog[@"builds"] valueForKey:@"name"]];
+    _builds.target=self;_builds.action=@selector(build:);[_builds setAccessibilityLabel:@"猫咪体型"];[page addSubview:_builds];
+    [self button:@"新建角色…" kind:PressQuiet rect:NSMakeRect(24,509,110,30) action:@selector(edit:) on:page];
+    _edit=[self button:@"编辑角色…" kind:PressQuiet rect:NSMakeRect(142,509,110,30) action:@selector(edit:) on:page];
 
     label(page,@"装扮工作室",[NSFont boldSystemFontOfSize:22],NSMakeRect(380,75,265,32));
     _scope=label(page,@"",[NSFont systemFontOfSize:13],NSMakeRect(537,82,219,22));
@@ -245,21 +249,25 @@ typedef NS_ENUM(NSInteger,PressKind) {PressTab,PressSwitch,PressQuiet,PressPlay,
 }
 - (void)refreshFrame {if(_panel.visible) [_preview setNeedsDisplay:YES];}
 - (void)synchronize {
-    NSArray *names=[_studio.roles valueForKey:@"name"];NSDictionary *role=_studio.role;
+    NSDictionary *role=_studio.role;
     if(![_roleSnapshot isEqual:_studio.roles]) {
-        _roleSnapshot=[_studio.roles copy];[_roles removeAllItems];[_roles addItemsWithTitles:names];
-        for(NSInteger i=0;i<(NSInteger)_roleSnapshot.count;i++) [_roles itemAtIndex:i].image=[_art portraitForRole:_roleSnapshot[i] size:18];
+        _roleSnapshot=[_studio.roles copy];[_roles removeAllItems];
+        for(NSDictionary *item in _roleSnapshot) {
+            NSMenuItem *choice=[[NSMenuItem alloc] initWithTitle:[_studio menuNameForRole:item] action:NULL keyEquivalent:@""];
+            choice.image=[_art portraitForRole:item size:18];[_roles.menu addItem:choice];
+        }
     }
+    [_builds selectItemAtIndex:[role[@"build"] integerValue]];
     [_roles selectItemAtIndex:_studio.selected];_edit.enabled=_studio.canEdit;_reset.enabled=_studio.clothes!=0 || _studio.hat!=0;
     _scope.stringValue=_group<2?@"穿搭随角色保存":@"所有角色共用这套桌搭";
     _print.chosen=_art.printLook;_classic.chosen=!_art.printLook;
-    NSInteger shape=[role[@"shape"] integerValue],eyes=[role[@"eyes"] integerValue],pattern=[role[@"pattern"] integerValue];
+    NSInteger shape=[role[@"shape"] integerValue],pattern=[role[@"pattern"] integerValue];
     NSInteger edition=pattern==0?shape:(pattern+1)%6;
     if(edition<(NSInteger)_covers.count) _preview.cover=_covers[edition];
     _name.stringValue=role[@"name"];
     __block NSUInteger chars=0;[_name.stringValue enumerateSubstringsInRange:NSMakeRange(0,_name.stringValue.length) options:NSStringEnumerationByComposedCharacterSequences usingBlock:^(NSString *s,NSRange r,NSRange enclosing,BOOL *stop){chars++;if(chars>4)*stop=YES;}];
     _name.font=displayFont(chars<=4?53:32);
-    _detail.stringValue=[NSString stringWithFormat:@"%@  /  %@",_studio.catalog[@"shapes"][shape],_studio.catalog[@"eyes"][eyes]];
+    _detail.stringValue=[NSString stringWithFormat:@"%@  /  %@",_studio.catalog[@"shapes"][shape],_studio.catalog[@"builds"][[role[@"build"] integerValue]][@"name"]];
     NSDictionary *catalog=_studio.catalog;
     NSMutableArray *worn=[NSMutableArray array];
     if(_studio.clothes) [worn addObject:catalog[@"clothes"][_studio.clothes]];
@@ -287,6 +295,7 @@ typedef NS_ENUM(NSInteger,PressKind) {PressTab,PressSwitch,PressQuiet,PressPlay,
     int choice[]={_studio.clothes,_studio.hat,_studio.board,_studio.mouse};choice[_group]=(int)sender.tag;
     [_studio wear:choice[0] hat:choice[1] board:choice[2] mouse:choice[3]];self.appearanceChanged();
 }
+- (void)build:(NSPopUpButton *)sender {[_studio setBuild:sender.indexOfSelectedItem];self.appearanceChanged();}
 - (void)group:(PressButton *)sender {_group=sender.tag;[self synchronize];}
 - (void)edit:(PressButton *)sender {self.editRole(sender==_edit);}
 - (void)role:(NSPopUpButton *)sender {self.selectRole(sender.indexOfSelectedItem);}

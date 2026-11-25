@@ -64,8 +64,13 @@ namespace KeyboardCat
         }
         public static void Main()
         {
-            foreach(Cat cat in new[]{Cat.All[0],Cat.All[1]}) {ScreenContacts(cat);DistinctPhrases(cat);}
-            Console.WriteLine("Both body shapes, all garments, three screen contacts, grounded steps and two bites passed.");
+            Check(Cat.All.Length==11 && BodyBuild.All.Length==5,"Public presets and physiques");
+            foreach(string id in new[]{"black-cat","white-cat","orange-tabby","calico"}) Check(Cat.Find(id).Id==id,"Missing "+id);
+            foreach(Cat cat in new[]{Cat.All[0],Cat.All[1]}) {
+                for(int i=0;i<BodyBuild.All.Length;i++) ScreenContacts(cat.WithBuild(i));
+                DistinctPhrases(cat);
+            }
+            Console.WriteLine("Both coat lengths, all five physiques, all garments, three screen contacts, grounded steps and two bites passed.");
         }
     }
 }

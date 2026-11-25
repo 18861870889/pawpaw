@@ -20,7 +20,7 @@ trap 'exit 1' HUP INT TERM
 art=${PAWPAW_ART_DIR:-}
 if [ -z "$art" ]; then art="$tmp/art"; sh "$here/prepare-art.sh" "$art"; fi
 for file in Artwork.bin Artwork.json; do [ -s "$art/$file" ] || { echo "Missing $file" >&2; exit 1; }; done
-if ! /usr/bin/plutil -extract version xml1 -o - "$art/Artwork.json" | /usr/bin/grep -q '<integer>8</integer>'; then
+if ! /usr/bin/plutil -extract version xml1 -o - "$art/Artwork.json" | /usr/bin/grep -q '<integer>9</integer>'; then
     echo 'Use a PawPaw 2.2 artwork archive or export the art from this checkout.' >&2
     exit 1
 fi
@@ -29,7 +29,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 for arch in arm64 x86_64; do
     xcrun --sdk macosx clang -arch "$arch" -mmacosx-version-min=11.0 -fobjc-arc -O2 \
         "$here/main.m" "$here/ChineseInput.m" "$here/PetStudio.m" "$here/PressStudio.m" "$here/PetArt.m" "$here/PetMotion.c" "$here/PrintArt.c" \
-        -framework ApplicationServices -framework Carbon -framework Cocoa -framework QuartzCore -framework CoreGraphics -framework CoreText -framework ImageIO -framework CoreFoundation \
+        -framework ApplicationServices -framework Carbon -framework Cocoa -framework QuartzCore -framework CoreGraphics -framework CoreText -lz -framework ImageIO -framework CoreFoundation \
         -o "$tmp/$arch"
 done
 xcrun lipo -create "$tmp/arm64" "$tmp/x86_64" -output "$app/Contents/MacOS/PawPaw"

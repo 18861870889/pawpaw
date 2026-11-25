@@ -13,7 +13,7 @@ namespace KeyboardCat
         readonly Preferences settings;
         readonly Motion motion;
         readonly WardrobePreview preview;
-        readonly ComboBox roles;
+        readonly ComboBox roles,builds;
         readonly Dictionary<Cat,Bitmap> rolePortraits=new Dictionary<Cat,Bitmap>();
         readonly Button edit,reset;
         readonly Label outfitLine,deskLine,scope;
@@ -28,7 +28,7 @@ namespace KeyboardCat
         public bool Editing {get;private set;}
         bool syncing;
 
-        public WardrobeForm(Preferences settings,Motion motion,Func<Bitmap> frame,Action<Cat> selectCat,Action<Outfit> wear,
+        public WardrobeForm(Preferences settings,Motion motion,Func<Bitmap> frame,Action<Cat> selectCat,Action<int> setBuild,Action<Outfit> wear,
                             Action<bool,int> setDesk,Action<Cat,bool> changeRole,Action<bool> setLook,Action<WordTrick> perform)
         {
             this.settings=settings;this.motion=motion;
@@ -37,7 +37,7 @@ namespace KeyboardCat
             Font=uiFont;Text=Program.DisplayName+" · 装扮工作室";BackColor=Paper;ForeColor=CoverArt.Ink;
             FormBorderStyle=FormBorderStyle.FixedToolWindow;StartPosition=FormStartPosition.Manual;
             ShowInTaskbar=false;MaximizeBox=false;MinimizeBox=false;TopMost=true;AutoScroll=true;
-            Size contentSize=new Size(782,520);ClientSize=contentSize;
+            Size contentSize=new Size(782,555);ClientSize=contentSize;
             Panel page=new Panel {Location=Point.Empty,Size=contentSize,BackColor=Paper};
             Controls.Add(page);
             Control mark=new StudioMark {Bounds=new Rectangle(24,16,36,32)};
@@ -56,11 +56,15 @@ namespace KeyboardCat
             deskLine=LabelAt("",380,415,376,27,uiFont);page.Controls.Add(deskLine);
             page.Controls.Add(LabelAt("角色",24,448,46,20,uiFont));
             roles=new ComboBox {DropDownStyle=ComboBoxStyle.DropDownList,DrawMode=DrawMode.OwnerDrawFixed,ItemHeight=21,DropDownWidth=218,BackColor=Color.White,
-                ForeColor=CoverArt.Ink,AccessibleName="选择角色",Bounds=new Rectangle(24,476,136,28)};
+                ForeColor=CoverArt.Ink,AccessibleName="选择角色",Bounds=new Rectangle(24,472,162,28)};
             roles.DrawItem+=DrawRole;
             roles.SelectedIndexChanged+=delegate {if(!syncing && roles.SelectedItem is Cat) selectCat((Cat)roles.SelectedItem);};
-            Button create=new StudioButton("新建角色…",StudioButton.Kind.Quiet,169,472,89,32);
-            edit=new StudioButton("编辑角色…",StudioButton.Kind.Quiet,264,472,92,32);
+            page.Controls.Add(LabelAt("体型",197,448,60,20,uiFont));
+            builds=new ComboBox {DropDownStyle=ComboBoxStyle.DropDownList,AccessibleName="猫咪体型",Bounds=new Rectangle(197,472,159,28)};
+            builds.Items.AddRange(BodyBuild.All);page.Controls.Add(builds);
+            builds.SelectedIndexChanged+=delegate {if(!syncing && builds.SelectedIndex>=0) setBuild(builds.SelectedIndex);};
+            Button create=new StudioButton("新建角色…",StudioButton.Kind.Quiet,24,509,110,30);
+            edit=new StudioButton("编辑角色…",StudioButton.Kind.Quiet,142,509,110,30);
             create.Click+=delegate {EditRole(false,changeRole);};edit.Click+=delegate {EditRole(true,changeRole);};
             page.Controls.AddRange(new Control[]{roles,create,edit});
 
@@ -148,7 +152,7 @@ namespace KeyboardCat
             e.Graphics.InterpolationMode=InterpolationMode.HighQualityBicubic;
             e.Graphics.DrawImage(portrait,e.Bounds.X+2,e.Bounds.Y+1,size,size);
             Rectangle name=e.Bounds;name.X+=size+6;name.Width-=size+8;
-            TextRenderer.DrawText(e.Graphics,cat.Name,Font,name,fg,TextFormatFlags.NoPrefix|TextFormatFlags.NoPadding|
+            TextRenderer.DrawText(e.Graphics,cat.MenuName,Font,name,fg,TextFormatFlags.NoPrefix|TextFormatFlags.NoPadding|
                 TextFormatFlags.VerticalCenter|TextFormatFlags.SingleLine|TextFormatFlags.EndEllipsis);
             if((e.State&DrawItemState.Focus)!=0) e.DrawFocusRectangle();
         }
@@ -180,7 +184,7 @@ namespace KeyboardCat
                 rolePortraits.Clear();roles.Items.Clear();roles.Items.AddRange(settings.Roles.ToArray());
                 roles.EndUpdate();
             }
-            roles.SelectedItem=settings.Cat;edit.Enabled=settings.Cat.IsCustom;
+            roles.SelectedItem=settings.Cat;builds.SelectedIndex=settings.Cat.BuildIndex;edit.Enabled=settings.Cat.IsCustom;
             int[] selected={(int)settings.CurrentOutfit.Clothes,(int)settings.CurrentOutfit.Hat,settings.Board,settings.MouseStyle};
             for(int i=0;i<choices.Length;i++) for(int j=0;j<choices[i].Count;j++) {
                 choices[i][j].Checked=j==selected[i];choices[i][j].PrintLook=settings.PrintLook;
@@ -352,7 +356,7 @@ namespace KeyboardCat
             bool shortName=System.Globalization.StringInfo.ParseCombiningCharacters(coverCat.Name).Length<=4;
             TextRenderer.DrawText(g,coverCat.Name,shortName?nameFont:compactName,
                 new Rectangle((int)(16*sx),(int)(5*sy),(int)(247*sx),(int)(68*sy)),CoverArt.Ink,flags);
-            TextRenderer.DrawText(g,Cat.Shapes[coverCat.ShapeIndex]+"  /  "+Cat.EyeNames[coverCat.Eyes],Font,
+            TextRenderer.DrawText(g,Cat.Shapes[coverCat.ShapeIndex]+"  /  "+coverCat.Build.Name,Font,
                 new Rectangle((int)(19*sx),(int)(72*sy),(int)(265*sx),(int)(24*sy)),CoverArt.Ink,flags);
             Bitmap image=frame();
             if(image==null) return;

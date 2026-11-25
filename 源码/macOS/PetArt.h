@@ -8,6 +8,7 @@
 @property(readonly) ChineseInput *chinese;
 @property(readonly) NSArray *idles;
 @property(readonly) NSDictionary *catalog;
+- (NSImage *)previewForRole:(NSDictionary *)role;
 - (NSImage *)portraitForRole:(NSDictionary *)role size:(CGFloat)size;
 @property(readonly) NSArray *keys;
 @property(readonly) NSDictionary *keymap;

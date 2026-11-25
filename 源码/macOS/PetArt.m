@@ -3,6 +3,7 @@
 #import <ImageIO/ImageIO.h>
 #import <CoreText/CoreText.h>
 #import <math.h>
+#include <zlib.h>
 
 static const int pixelWidth=640,pixelHeight=520;
 static inline CGFloat rad(double angle) {return angle*M_PI/180.;}
@@ -12,6 +13,9 @@ static double earFlick(double time,double period,double offset) {
     if(phase>=.62) return 0;
     double beat=sin(phase*M_PI/.62);
     return beat*beat*sin(phase*M_PI*3/.62);
+}
+static void scaleAround(CGContextRef g,double x,double y,double width,double height) {
+    CGContextTranslateCTM(g,x,y);CGContextScaleCTM(g,width,height);CGContextTranslateCTM(g,-x,-y);
 }
 static void figure(CGContextRef g,int cat) {
     CGContextTranslateCTM(g,153,199); CGContextScaleCTM(g,cat?1.02:.90,cat?1:.86); CGContextTranslateCTM(g,-153,-199);
@@ -44,7 +48,7 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
 
 @implementation PetArt {
     NSData *_atlas,*_printInks;
-    int _clipFPS;
+    int _clipFPS,_dyePattern;
     NSDictionary *_sprites,*_clips;
     NSCache<NSNumber *,KCTexture *> *_textures;
     CGContextRef _ctx;
@@ -61,7 +65,7 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
     NSDictionary *m=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:NULL]:nil;
     _atlas=[NSData dataWithContentsOfURL:bin options:NSDataReadingMappedIfSafe error:NULL];
     if(![m isKindOfClass:[NSDictionary class]] || !_atlas.length || [m[@"scale"] intValue]!=2 ||
-        [m[@"tricks"] count]!=KC_WORDS || [m[@"keys"] count]!=63 || [m[@"version"] intValue]!=8 || [m[@"idles"] count]!=KC_IDLE_COUNT || ![m[@"catalog"][@"roles"] count] || !m[@"sprites"][@"board/0"]) return nil;
+        [m[@"tricks"] count]!=KC_WORDS || [m[@"keys"] count]!=63 || [m[@"version"] intValue]!=9 || ![m[@"catalog"][@"builds"] count] || [m[@"catalog"][@"dyes"] count]!=[m[@"catalog"][@"patterns"] count] || [m[@"idles"] count]!=KC_IDLE_COUNT || ![m[@"catalog"][@"roles"] count] || !m[@"sprites"][@"board/0"]) return nil;
     _printInks=[NSData dataWithContentsOfURL:[bundle URLForResource:@"PrintInks" withExtension:@"rgb"]];
     if(_printInks.length!=32768*6) return nil;
     _clipFPS=[m[@"fps"] intValue];if(_clipFPS<1 || _clipFPS>60) return nil;
@@ -89,22 +93,63 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
     const uint8_t *bytes=CGBitmapContextGetData(_ctx);
     return bytes[((size_t)py*pixelWidth+px)*4+3]>18;
 }
+- (CGImageRef)newImageAt:(NSUInteger)begin length:(NSUInteger)len CF_RETURNS_RETAINED {
+    if(begin>_atlas.length || len>_atlas.length-begin) return NULL;
+    NSData *bytes=[NSData dataWithBytesNoCopy:(void *)((const uint8_t *)_atlas.bytes+begin) length:len freeWhenDone:NO];
+    CGImageSourceRef source=CGImageSourceCreateWithData((__bridge CFDataRef)bytes,NULL);
+    if(!source) return NULL;
+    NSDictionary *opts=@{(__bridge NSString *)kCGImageSourceShouldCacheImmediately:@YES};
+    CGImageRef image=CGImageSourceCreateImageAtIndex(source,0,(__bridge CFDictionaryRef)opts);
+    CFRelease(source);return image;
+}
+// Row differences in the pigment map are raw DEFLATE. Decode only when the tinted texture is first used.
+- (CGImageRef)newDyedImage:(CGImageRef)base entry:(NSArray *)entry dye:(NSArray *)dye CF_RETURNS_RETAINED {
+    size_t w=CGImageGetWidth(base),h=CGImageGetHeight(base);
+    NSUInteger begin=[entry[6] unsignedIntegerValue],length=[entry[7] unsignedIntegerValue];
+    if(begin>_atlas.length || length>_atlas.length-begin || w>pixelWidth || h>pixelHeight) return NULL;
+    NSMutableData *weights=[NSMutableData dataWithLength:w*h];
+    z_stream stream={0};
+    stream.next_in=(Bytef *)_atlas.bytes+begin;stream.avail_in=(uInt)length;
+    stream.next_out=weights.mutableBytes;stream.avail_out=(uInt)weights.length;
+    if(inflateInit2(&stream,-MAX_WBITS)!=Z_OK) return NULL;
+    int status=inflate(&stream,Z_FINISH);inflateEnd(&stream);
+    if(status!=Z_STREAM_END || stream.total_out!=w*h) return NULL;
+    CGColorSpaceRef rgb=CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGContextRef colors=CGBitmapContextCreate(NULL,w,h,8,w*4,rgb,kCGImageAlphaPremultipliedLast|kCGBitmapByteOrder32Big);
+    CGColorSpaceRelease(rgb);if(!colors) return NULL;
+    CGContextDrawImage(colors,CGRectMake(0,0,w,h),base);
+    uint8_t *pixels=CGBitmapContextGetData(colors);const uint8_t *map=weights.bytes;
+    int factors[]={[dye[0] intValue],[dye[1] intValue],[dye[2] intValue]};
+    for(size_t y=0;y<h;y++) {
+        uint8_t amount=0;
+        for(size_t x=0;x<w;x++) {
+            size_t i=y*w+x;amount+=map[i];
+            if(!amount) continue;
+            uint8_t *pixel=pixels+4*i;
+            for(int c=0;c<3;c++) {
+                int shift=2*amount*factors[c];
+                pixel[c]=clampi(pixel[c]-(shift+(shift<0?-128:128))/256,0,pixel[3]);
+            }
+        }
+    }
+    CGImageRef result=CGBitmapContextCreateImage(colors);CGContextRelease(colors);
+    return result;
+}
 - (KCTexture *)textureForEntry:(NSArray *)a {
-    if(!a) return nil;
-    NSNumber *offset=a[0];
-    KCTexture *texture=[_textures objectForKey:offset];
+    if(a.count<6) return nil;
+    int pigment=a.count==8?_dyePattern:0;
+    NSNumber *key=@(([a[0] unsignedLongLongValue]<<8)|(unsigned)pigment);
+    KCTexture *texture=[_textures objectForKey:key];
     if(!texture) {
-        NSUInteger begin=offset.unsignedIntegerValue,len=[a[1] unsignedIntegerValue];
-        if(begin>_atlas.length || len>_atlas.length-begin) return nil;
-        NSData *bytes=[NSData dataWithBytesNoCopy:(void *)((const uint8_t *)_atlas.bytes+begin) length:len freeWhenDone:NO];
-        CGImageSourceRef source=CGImageSourceCreateWithData((__bridge CFDataRef)bytes,NULL);
-        if(!source) return nil;
+        CGImageRef base=[self newImageAt:[a[0] unsignedIntegerValue] length:[a[1] unsignedIntegerValue]];
+        if(!base) return nil;
         texture=[KCTexture new];
-        NSDictionary *opts=@{(__bridge NSString *)kCGImageSourceShouldCacheImmediately:@YES};
-        texture->pixels=CGImageSourceCreateImageAtIndex(source,0,(__bridge CFDictionaryRef)opts);
-        CFRelease(source);
+        if(pigment) {
+            texture->pixels=[self newDyedImage:base entry:a dye:_catalog[@"dyes"][pigment]];
+            CGImageRelease(base);
+        } else texture->pixels=base;
         if(!texture->pixels) return nil;
-        [_textures setObject:texture forKey:offset cost:CGImageGetBytesPerRow(texture->pixels)*CGImageGetHeight(texture->pixels)];
+        [_textures setObject:texture forKey:key cost:CGImageGetHeight(texture->pixels)*CGImageGetBytesPerRow(texture->pixels)];
     }
     return texture;
 }
@@ -114,6 +159,20 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
     if(!texture) return nil;
     return [[NSImage alloc] initWithCGImage:texture->pixels size:NSMakeSize(size,size)];
 }
+- (NSImage *)previewForRole:(NSDictionary *)role {
+    // Render the editor on its own surface so opening it never changes the pet's live hit test.
+    CGContextRef live=_ctx;CGImageRef previous=_frame;int dye=_dyePattern;
+    CGColorSpaceRef rgb=CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGContextRef preview=CGBitmapContextCreate(NULL,pixelWidth,pixelHeight,8,pixelWidth*4,rgb,kCGImageAlphaPremultipliedLast|kCGBitmapByteOrder32Big);
+    CGColorSpaceRelease(rgb);if(!preview) return nil;
+    _ctx=preview;_frame=NULL;
+    KCMotion m={0};kc_reset(&m);
+    [self renderRole:role clothes:0 hat:0 board:0 mouse:0 motion:&m time:1];
+    NSImage *image=_frame?[[NSImage alloc] initWithCGImage:_frame size:NSMakeSize(160,130)]:nil;
+    if(_frame) CGImageRelease(_frame);CGContextRelease(preview);
+    _ctx=live;_frame=previous;_dyePattern=dye;
+    return image;
+}
 - (void)sprite:(NSString *)name {
     NSArray *a=_sprites[name];
     KCTexture *texture=[self textureForEntry:a];
@@ -122,6 +181,15 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
     CGContextSaveGState(_ctx); CGContextTranslateCTM(_ctx,x,y+h); CGContextScaleCTM(_ctx,1,-1);
     CGContextDrawImage(_ctx,CGRectMake(0,0,w,h),texture->pixels); CGContextRestoreGState(_ctx);
 }
+- (void)clipToSprite:(NSString *)name {
+    NSArray *a=_sprites[name];KCTexture *texture=[self textureForEntry:a];
+    if(!texture) return;
+    CGRect rect=CGRectMake([a[2] doubleValue]*.5,[a[3] doubleValue]*.5,[a[4] doubleValue]*.5,[a[5] doubleValue]*.5);
+    CGFloat axis=CGRectGetMinY(rect)+CGRectGetMaxY(rect);
+    CGContextTranslateCTM(_ctx,0,axis);CGContextScaleCTM(_ctx,1,-1);
+    CGContextClipToMask(_ctx,rect,texture->pixels);
+    CGContextScaleCTM(_ctx,1,-1);CGContextTranslateCTM(_ctx,0,-axis);
+}
 - (void)face:(NSString *)cat pattern:(int)pattern eyes:(int)eyes hat:(int)hat x:(double)x y:(double)y open:(double)open smile:(double)smile leftEar:(int)left rightEar:(int)right temper:(double)temper {
     NSString *part;
     if(open<.095) part=smile>.5?@"smile":@"blink";
@@ -129,7 +197,7 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
     else part=[NSString stringWithFormat:@"head/%d_%d",clampi((int)lround(x*2)+2,0,4),clampi((int)lround(y*2)+2,0,4)];
     [self sprite:[NSString stringWithFormat:@"%@pattern/%d/%d_%d",cat,pattern,left,right]];
     [self sprite:[NSString stringWithFormat:@"%@eyes/%d/%@",cat,eyes,part]];
-    [self sprite:[cat stringByAppendingString:@"muzzle"]];
+    [self sprite:[NSString stringWithFormat:@"%@muzzle/%d",cat,pattern]];
     int brow=(int)lround(temper*8);
     if(brow) [self sprite:[NSString stringWithFormat:@"%@temper/%d",cat,brow]];
     if(hat) [self sprite:[NSString stringWithFormat:@"%@hat/%d",cat,hat]];
@@ -165,6 +233,10 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
 }
 - (void)renderRole:(NSDictionary *)role clothes:(int)clothes hat:(int)hat board:(int)board mouse:(int)mouse motion:(const KCMotion *)m time:(double)t {
     int cat=[role[@"shape"] intValue],pattern=[role[@"pattern"] intValue],eyes=[role[@"eyes"] intValue];
+    NSArray *dye=_catalog[@"dyes"][pattern];
+    _dyePattern=([dye[0] intValue] || [dye[1] intValue] || [dye[2] intValue])?pattern:0;
+    NSDictionary *build=_catalog[@"builds"][[role[@"build"] unsignedIntegerValue]];
+    double bw=[build[@"torsoWidth"] doubleValue],bh=[build[@"torsoHeight"] doubleValue];
     if(_frame) {CGImageRelease(_frame);_frame=NULL;}
     NSString *who=cat?@"long/":@"short/";
     NSString *outfit=[NSString stringWithFormat:@"%@%d/",who,clothes];
@@ -211,12 +283,20 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
             [a[11] doubleValue],[a[12] doubleValue],[a[13] doubleValue]));
     } else figure(_ctx,cat);
     CGContextSaveGState(_ctx);
+    CGContextTranslateCTM(_ctx,fmin(0,bw-1)*27,(bh-1)*-17);
     CGContextTranslateCTM(_ctx,190,180);CGContextRotateCTM(_ctx,rad(turn));CGContextTranslateCTM(_ctx,-190,-180);
     [self sprite:[NSString stringWithFormat:@"%@tail/%d/%d",who,pattern,swish]];
     CGContextRestoreGState(_ctx);
-    if(clothes==0) [self sprite:[NSString stringWithFormat:@"%@body/%d",who,pattern]];
-    else if(frameName) [self sprite:[NSString stringWithFormat:@"%@posture/%d",outfit,[headMatrix[24] intValue]]];
-    else [self sprite:[outfit stringByAppendingString:@"body"]];
+    CGContextSaveGState(_ctx);
+    scaleAround(_ctx,153,199,bw,bh);
+    NSString *body=[NSString stringWithFormat:@"%@body/%d",who,pattern];
+    if(clothes) {
+        NSString *garment=frameName?[NSString stringWithFormat:@"%@posture/%d",outfit,[headMatrix[24] intValue]]:[outfit stringByAppendingString:@"body"];
+        CGContextSaveGState(_ctx);[self clipToSprite:[garment stringByAppendingString:@"/cut"]];
+        [self sprite:body];CGContextRestoreGState(_ctx);
+        [self sprite:garment];
+    } else [self sprite:body];
+    CGContextRestoreGState(_ctx);
     if(frameName) [self sprite:[frameName stringByAppendingString:@"back"]];
     CGContextRestoreGState(_ctx);
     [self sprite:[NSString stringWithFormat:@"board/%d",board]];
@@ -235,6 +315,7 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
         NSArray *a=headMatrix;
         CGContextConcatCTM(_ctx,CGAffineTransformMake([a[0] doubleValue],[a[1] doubleValue],[a[2] doubleValue],
             [a[3] doubleValue],[a[4] doubleValue],[a[5] doubleValue]));
+        scaleAround(_ctx,151,cat?78:84,[build[@"faceWidth"] doubleValue],[build[@"faceHeight"] doubleValue]);
         [self face:who pattern:pattern eyes:eyes hat:hat x:lx y:ly open:(kc_blink(t)*(1-still)+still)*[a[6] doubleValue] smile:[a[7] doubleValue] leftEar:earL rightEar:earR temper:temper];
     } else {
         figure(_ctx,cat);
@@ -256,6 +337,7 @@ static void fishGlints(CGContextRef g,bool longhair,double seconds) {
         double lean=cat?3.3:1.75;
         CGContextTranslateCTM(_ctx,151+lx*lean,102+breath+ly*1.7+typing);
         CGContextRotateCTM(_ctx,rad(lx*lean)); CGContextScaleCTM(_ctx,1.24,1.12); CGContextTranslateCTM(_ctx,-151,-90);
+        scaleAround(_ctx,151,cat?78:84,[build[@"faceWidth"] doubleValue],[build[@"faceHeight"] doubleValue]);
         [self face:who pattern:pattern eyes:eyes hat:hat x:lx y:ly open:kc_blink(t)*(1-cover)*(1-.27*temper) smile:0 leftEar:earL rightEar:earR temper:temper];
     }
     CGContextRestoreGState(_ctx);

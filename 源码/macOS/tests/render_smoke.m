@@ -2,6 +2,8 @@
 #import <CoreGraphics/CoreGraphics.h>
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <math.h>
 
 static NSData *pixels(PetArt *art,NSDictionary *role,KCMotion *motion,double time) {
@@ -35,7 +37,7 @@ int main(int argc,const char **argv) {
         NSURL *index=[bundle URLForResource:@"Artwork" withExtension:@"json"];
         NSDictionary *atlas=[NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfURL:index] options:0 error:NULL];
         int fps=[atlas[@"fps"] intValue];
-        assert([atlas[@"version"] intValue]==8 && fps==24);
+        assert([atlas[@"version"] intValue]==9 && fps==24);
         for(NSString *shape in @[@"short",@"long"]) for(int garment=0;garment<7;garment++) {
             NSString *outfit=[NSString stringWithFormat:@"%@/%d/",shape,garment];
             for(int egg=0;egg<KC_WORDS;egg++) {
@@ -46,14 +48,14 @@ int main(int argc,const char **argv) {
                     assert(frame.count==25);
                     if(garment) {
                         NSString *posture=[outfit stringByAppendingFormat:@"posture/%d",[frame[24] intValue]];
-                        assert(atlas[@"sprites"][posture]);
+                        assert(atlas[@"sprites"][posture] && atlas[@"sprites"][[posture stringByAppendingString:@"/cut"]]);
                     }
                 }
                 if(egg==11) assert([clip[(int)lround(1.08*fps)][23] doubleValue]>.94 && [clip[(int)lround(1.85*fps)][23] doubleValue]==0);
             }
         }
         int keys[]={3,34,1,4}; // F I S H on the Mac virtual keyboard
-        assert([art.catalog[@"roles"] count]==7);
+        assert([art.catalog[@"roles"] count]==11 && [art.catalog[@"builds"] count]==5);
         for(int cat=0;cat<(int)[art.catalog[@"roles"] count];cat++) for(int print=0;print<2;print++){
             KCMotion m;kc_init(&m,aliases,durations,art.chinese.pinyinAliases);art.printLook=print;
             NSDictionary *role=art.catalog[@"roles"][cat];
@@ -102,7 +104,30 @@ int main(int argc,const char **argv) {
             [art renderRole:art.catalog[@"roles"][garment] clothes:garment hat:garment%6 board:0 mouse:0 motion:&leap time:1.86];
             assert(art.frame && CGImageGetWidth(art.frame)==640);
         }
-        puts("All seven breeds, garments, independent choreography, both art styles and secure input passed.");
+        art.printLook=NO;
+        KCMotion still;kc_init(&still,aliases,durations,art.chinese.pinyinAliases);
+        NSDictionary *black=art.catalog[@"roles"][7];assert([black[@"id"] isEqual:@"black-cat"]);
+        NSMutableDictionary *model=[black mutableCopy];NSMutableArray *variants=[NSMutableArray array];
+        for(int i=0;i<5;i++) {
+            model[@"build"]=@(i);NSData *frame=pixels(art,model,&still,1);
+            assert(![variants containsObject:frame]);[variants addObject:frame];
+        }
+        assert([art previewForRole:model]);
+        kc_play(&still,11,1);
+        model[@"build"]=@0;model[@"pattern"]=@0;
+        NSData *neutral=pixels(art,model,&still,2.12);
+        model[@"pattern"]=black[@"pattern"];NSData *dark=pixels(art,model,&still,2.12);
+        // The forward palm has neutral fur between its pink pads. Only the fur picks up the coat.
+        const unsigned char *base=neutral.bytes,*tinted=dark.bytes;int darkened=0,pink=0;
+        for(int y=115*2;y<131*2;y++) for(int x=147*2;x<171*2;x++) {
+            size_t i=((size_t)y*640+x)*4;
+            if(base[i+3]<250 || tinted[i+3]<250) continue;
+            if(base[i]>195 && base[i+1]>185 && base[i+2]>175 && base[i]-tinted[i]>110 && tinted[i+2]<140) darkened++;
+            if(base[i]>190 && base[i]-base[i+1]>44 && abs((int)base[i]-(int)tinted[i])<=2) pink++;
+        }
+        assert(darkened>100 && pink>100);
+        assert(!memcmp(base+232*2*640*4,tinted+232*2*640*4,640*4));
+        puts("Eleven cats, five builds, coat-coloured paws, clothes, choreography and secure input passed.");
     }
     return 0;
 }

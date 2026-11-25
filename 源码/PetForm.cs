@@ -19,6 +19,7 @@ namespace KeyboardCat
         readonly ContextMenuStrip actions = new ContextMenuStrip();
         readonly List<Bitmap> portraits = new List<Bitmap>();
         readonly ToolStripMenuItem cats = new ToolStripMenuItem("换只猫咪");
+        readonly ToolStripMenuItem builds=new ToolStripMenuItem("猫咪体型");
         readonly ToolStripMenuItem sizes = new ToolStripMenuItem("桌宠大小");
         readonly ToolStripMenuItem dressUp = new ToolStripMenuItem("装扮工作室…");
         readonly ToolStripMenuItem looks=new ToolStripMenuItem("桌宠画风");
@@ -126,7 +127,7 @@ namespace KeyboardCat
             {
                 Cat cat=item;
                 Bitmap portrait=Painter.Portrait(cat,44,settings.OutfitFor(cat).Hat); portraits.Add(portrait);
-                ToolStripMenuItem choice=new ToolStripMenuItem(cat.Name.Replace("&","&&"),portrait);
+                ToolStripMenuItem choice=new ToolStripMenuItem(cat.MenuName.Replace("&","&&"),portrait);
                 choice.Click+=delegate { SelectCat(cat); };
                 cats.DropDownItems.Add(choice);
             }
@@ -138,6 +139,10 @@ namespace KeyboardCat
             RebuildCatMenu();
             ToolStripDropDownMenu catMenu=(ToolStripDropDownMenu)cats.DropDown;
             catMenu.ShowCheckMargin=true; catMenu.ImageScalingSize=new Size(22,22);
+            for(int i=0;i<BodyBuild.All.Length;i++) {
+                int index=i;
+                builds.DropDownItems.Add(BodyBuild.All[i].Name,null,delegate {SetBuild(index);});
+            }
             for(int i=0;i<Preferences.Scales.Length;i++)
             {
                 int index=i;
@@ -172,7 +177,7 @@ namespace KeyboardCat
             dressUp.Click+=delegate { BeginInvoke((MethodInvoker)OpenWardrobe); };
             looks.DropDownItems.Add("猫咪画报",null,delegate {SetLook(true);});
             looks.DropDownItems.Add("经典原画",null,delegate {SetLook(false);});
-            actions.Items.Add(cats); actions.Items.Add(dressUp); actions.Items.Add(looks); actions.Items.Add(trickMenu); actions.Items.Add(sizes);
+            actions.Items.Add(cats); actions.Items.Add(builds); actions.Items.Add(dressUp); actions.Items.Add(looks); actions.Items.Add(trickMenu); actions.Items.Add(sizes);
             actions.Items.Add("锁定桌宠（点击穿透）",null,delegate { BeginInvoke((MethodInvoker)delegate {SetLocked(true);}); });
             actions.Items.Add("桌宠透明度…",null,delegate { BeginInvoke((MethodInvoker)OpenOpacity); });
             actions.Items.Add(new ToolStripSeparator()); actions.Items.Add(labels); actions.Items.Add(pause);
@@ -189,6 +194,7 @@ namespace KeyboardCat
             actions.Opening+=delegate
             {
                 for(int i=0;i<settings.Roles.Count;i++) ((ToolStripMenuItem)cats.DropDownItems[i]).Checked=settings.Roles[i]==settings.Cat;
+                for(int i=0;i<builds.DropDownItems.Count;i++) ((ToolStripMenuItem)builds.DropDownItems[i]).Checked=i==settings.Cat.BuildIndex;
                 for(int i=0;i<sizes.DropDownItems.Count;i++) ((ToolStripMenuItem)sizes.DropDownItems[i]).Checked=i==settings.ScaleIndex;
                 ((ToolStripMenuItem)looks.DropDownItems[0]).Checked=settings.PrintLook;
                 ((ToolStripMenuItem)looks.DropDownItems[1]).Checked=!settings.PrintLook;
@@ -233,7 +239,7 @@ namespace KeyboardCat
             if(disposed || !loaded || settings.Locked) return;
             if(wardrobe==null || wardrobe.IsDisposed)
             {
-                wardrobe=new WardrobeForm(settings,motion,delegate { return rendered==null?null:rendered.Image; },SelectCat,Wear,SetDesk,ChangeRole,SetLook,PlayTrick);
+                wardrobe=new WardrobeForm(settings,motion,delegate { return rendered==null?null:rendered.Image; },SelectCat,SetBuild,Wear,SetDesk,ChangeRole,SetLook,PlayTrick);
                 wardrobe.Activated+=delegate { motion.ClearInput(); };
                 wardrobe.FormClosed+=delegate { wardrobe=null; ReleaseStudioSurface(); };
             }
@@ -296,7 +302,7 @@ namespace KeyboardCat
         {
             if(remove) settings.RemoveRole(cat); else settings.PutRole(cat);
             RebuildCatMenu();
-            SelectCat(remove?Cat.All[0]:cat);
+            SelectCat(remove?settings.Roles[0]:cat);
         }
 
         void SelectCat(Cat cat)
@@ -306,6 +312,14 @@ namespace KeyboardCat
             motion.Reset();
             UpdateIcon();
             AppearanceChanged();
+        }
+
+        void SetBuild(int index)
+        {
+            if(index==settings.Cat.BuildIndex) return;
+            Cat cat=settings.Cat.WithBuild(index);
+            settings.PutRole(cat); settings.Cat=cat;
+            RebuildCatMenu();AppearanceChanged();
         }
 
         void Wear(Outfit outfit)

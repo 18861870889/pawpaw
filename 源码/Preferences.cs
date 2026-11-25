@@ -75,11 +75,16 @@ namespace KeyboardCat
                 if(!File.Exists(path)) return p;
                 int? x=null,y=null;
                 string selected=null;
+                Dictionary<string,int> builds=new Dictionary<string,int>(StringComparer.Ordinal);
                 foreach(string line in File.ReadAllLines(path))
                 {
                     int cut=line.IndexOf('='),number;
                     if(cut<1) continue;
                     string name=line.Substring(0,cut), value=line.Substring(cut+1).Trim();
+                    if(name.StartsWith("build.",StringComparison.Ordinal)) {
+                        if(ReadIndex(value,BodyBuild.All.Length,out number)) builds[name.Substring(6)]=number;
+                        continue;
+                    }
                     if(name.StartsWith(OutfitPrefix,StringComparison.Ordinal))
                     {
                         string id=name.Substring(OutfitPrefix.Length);
@@ -112,6 +117,10 @@ namespace KeyboardCat
                         case "y": if(Coordinate(value,out number)) y=number; break;
                     }
                 }
+                for(int i=0;i<p.Roles.Count;i++) {
+                    int build;
+                    if(builds.TryGetValue(p.Roles[i].Id,out build)) p.Roles[i]=p.Roles[i].WithBuild(build);
+                }
                 p.Cat=p.Roles.Find(c=>c.Id==selected) ?? Cat.All[0];
                 if(x.HasValue && y.HasValue) p.Position=new Point(x.Value,y.Value);
             }
@@ -142,6 +151,7 @@ namespace KeyboardCat
                 foreach(Cat cat in Roles) {
                     if(cat.IsCustom) lines.AppendLine("role."+cat.Id+"="+cat.ShapeIndex+","+cat.Pattern+","+cat.Eyes+","+
                         Convert.ToBase64String(Encoding.UTF8.GetBytes(cat.Name)));
+                    lines.AppendLine("build."+cat.Id+"="+cat.BuildIndex);
                     lines.AppendLine(OutfitPrefix+cat.Id+"="+OutfitFor(cat).Encode());
                 }
                 File.WriteAllText(tmp,lines.ToString(),new UTF8Encoding(false));

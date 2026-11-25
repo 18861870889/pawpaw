@@ -34,12 +34,18 @@ static BOOL validName(id name) {
     for(NSDictionary *r in saved) {
         if(![r isKindOfClass:NSDictionary.class] || !validUserID(r[@"id"]) || !validName(r[@"name"]) ||
             !validIndex(r[@"shape"],[catalog[@"shapes"] count]) || !validIndex(r[@"pattern"],[catalog[@"patterns"] count]) ||
-            !validIndex(r[@"eyes"],[catalog[@"eyes"] count]) || [[_items valueForKey:@"id"] containsObject:r[@"id"]] ||
-            ![self nameAvailable:r[@"name"] forID:r[@"id"]]) continue;
+            !validIndex(r[@"eyes"],[catalog[@"eyes"] count]) || [[_items valueForKey:@"id"] containsObject:r[@"id"]]) continue;
         if(r[@"photo"]) {
             NSMutableDictionary *role=[r mutableCopy];[role removeObjectForKey:@"photo"];
             [_items addObject:role];migrated=YES;
         } else [_items addObject:r];
+    }
+    for(NSUInteger i=0;i<_items.count;i++) {
+        NSDictionary *item=_items[i];
+        id savedBuild=[prefs objectForKey:[@"build." stringByAppendingString:item[@"id"]]];
+        NSUInteger count=[catalog[@"builds"] count];
+        int build=validIndex(savedBuild,count)?[savedBuild intValue]:indexOrZero(item[@"build"],count);
+        NSMutableDictionary *role=[item mutableCopy];role[@"build"]=@(build);_items[i]=[role copy];
     }
     if(migrated) [self saveUsers];
     id active=[prefs objectForKey:@"selectedRoleID"];
@@ -63,14 +69,27 @@ static BOOL validName(id name) {
     if(index<0 || (NSUInteger)index>=_items.count) return;
     _selected=index;[_prefs setObject:self.role[@"id"] forKey:@"selectedRoleID"];[self loadOutfit];
 }
+- (void)setBuild:(NSInteger)index {
+    if(index<0 || (NSUInteger)index>=[_catalog[@"builds"] count] || [self.role[@"build"] integerValue]==index) return;
+    NSMutableDictionary *item=[self.role mutableCopy];item[@"build"]=@(index);_items[_selected]=[item copy];
+    [_prefs setInteger:index forKey:[self outfitKey:@"build"]];
+}
 - (void)wear:(NSInteger)clothes hat:(NSInteger)hat board:(NSInteger)board mouse:(NSInteger)mouse {
     _clothes=indexOrZero(@(clothes),[_catalog[@"clothes"] count]);_hat=indexOrZero(@(hat),[_catalog[@"hats"] count]);
     _board=indexOrZero(@(board),[_catalog[@"boards"] count]);_mouse=indexOrZero(@(mouse),[_catalog[@"mice"] count]);
     [_prefs setInteger:_clothes forKey:[self outfitKey:@"clothes"]];[_prefs setInteger:_hat forKey:[self outfitKey:@"hat"]];
     [_prefs setInteger:_board forKey:@"deskBoard"];[_prefs setInteger:_mouse forKey:@"deskMouse"];
 }
+- (NSString *)menuNameForRole:(NSDictionary *)role {
+    NSString *name=role[@"name"];
+    if(validUserID(role[@"id"])) for(NSDictionary *preset in _catalog[@"roles"])
+        if([preset[@"name"] caseInsensitiveCompare:name]==NSOrderedSame) return [name stringByAppendingString:@"（自建）"];
+    return name;
+}
 - (BOOL)nameAvailable:(NSString *)name forID:(NSString *)identifier {
     if(!validName(name))return NO;
+    for(NSDictionary *item in _items)
+        if([item[@"id"] isEqual:identifier] && [item[@"name"] caseInsensitiveCompare:name]==NSOrderedSame) return YES;
     for(NSDictionary *item in _items)
         if(![item[@"id"] isEqual:identifier] && [item[@"name"] caseInsensitiveCompare:name]==NSOrderedSame) return NO;
     return YES;
@@ -82,13 +101,14 @@ static BOOL validName(id name) {
 - (void)storeRole:(NSDictionary *)role {
     if(!validUserID(role[@"id"]) || ![self nameAvailable:role[@"name"] forID:role[@"id"]] ||
         !validIndex(role[@"shape"],[_catalog[@"shapes"] count]) || !validIndex(role[@"pattern"],[_catalog[@"patterns"] count]) ||
-        !validIndex(role[@"eyes"],[_catalog[@"eyes"] count])) return;
+        !validIndex(role[@"eyes"],[_catalog[@"eyes"] count]) || !validIndex(role[@"build"],[_catalog[@"builds"] count])) return;
     NSUInteger pos=[[_items valueForKey:@"id"] indexOfObject:role[@"id"]];
     if(pos==NSNotFound) {pos=_items.count;[_items addObject:role];} else _items[pos]=role;
-    [self saveUsers];[self select:pos];
+    [self saveUsers];[self select:pos];[_prefs setInteger:[role[@"build"] integerValue] forKey:[self outfitKey:@"build"]];
 }
 - (void)removeCurrentRole {
     if(!self.canEdit) return;
+    [_prefs removeObjectForKey:[self outfitKey:@"build"]];
     [_prefs removeObjectForKey:[self outfitKey:@"clothes"]];[_prefs removeObjectForKey:[self outfitKey:@"hat"]];
     [_items removeObjectAtIndex:_selected];[self saveUsers];[self select:0];
 }
@@ -100,13 +120,13 @@ static BOOL validName(id name) {
     NSAlert *_dialog;
     NSString *_identifier;
     NSTextField *_name,*_feedback;
-    NSPopUpButton *_shape,*_pattern,*_eyes;
+    NSPopUpButton *_shape,*_build,*_pattern,*_eyes;
     NSImageView *_portrait;
 }
 - (NSDictionary *)candidate {
     NSString *name=[_name.stringValue stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     return @{@"id":_identifier,@"name":name,@"shape":@(_shape.indexOfSelectedItem),
-             @"pattern":@(_pattern.indexOfSelectedItem),@"eyes":@(_eyes.indexOfSelectedItem)};
+             @"build":@(_build.indexOfSelectedItem),@"pattern":@(_pattern.indexOfSelectedItem),@"eyes":@(_eyes.indexOfSelectedItem)};
 }
 - (void)validate {
     NSString *name=self.candidate[@"name"];
@@ -116,14 +136,14 @@ static BOOL validName(id name) {
     _feedback.stringValue=!name.length?@"给这只猫起个名字。":valid?@"":validName(name)?@"这个名字已经有猫在用啦。":@"名字需要 1 至 24 个字符。";
 }
 - (void)controlTextDidChange:(NSNotification *)note {[self validate];}
-- (void)preview:(id)sender {_portrait.image=[_art portraitForRole:self.candidate size:128];}
+- (void)preview:(id)sender {_portrait.image=[_art previewForRole:self.candidate];}
 - (void)label:(NSString *)title y:(CGFloat)y inView:(NSView *)view {
     NSTextField *label=[NSTextField labelWithString:title];label.frame=NSMakeRect(139,y+4,45,20);[view addSubview:label];
 }
 - (NSPopUpButton *)picker:(NSString *)key title:(NSString *)title y:(CGFloat)y inView:(NSView *)view {
     [self label:title y:y inView:view];
     NSPopUpButton *button=[[NSPopUpButton alloc] initWithFrame:NSMakeRect(183,y,170,27) pullsDown:NO];
-    [button addItemsWithTitles:_studio.catalog[key]];
+    [button addItemsWithTitles:[key isEqual:@"builds"]?[_studio.catalog[key] valueForKey:@"name"]:_studio.catalog[key]];
     button.target=self;button.action=@selector(preview:);[button setAccessibilityLabel:title];[view addSubview:button];return button;
 }
 - (BOOL)runWithStudio:(PetStudio *)studio art:(PetArt *)art edit:(BOOL)editing {
@@ -134,14 +154,15 @@ static BOOL validName(id name) {
     _dialog=[NSAlert new];_dialog.messageText=editing?@"编辑角色":@"新建角色";
     [_dialog addButtonWithTitle:@"保存"];[_dialog addButtonWithTitle:@"取消"];
     if(editing) [_dialog addButtonWithTitle:@"删除角色…"];
-    NSView *view=[[NSView alloc] initWithFrame:NSMakeRect(0,0,360,165)];
-    _portrait=[[NSImageView alloc] initWithFrame:NSMakeRect(0,21,133,133)];
+    NSView *view=[[NSView alloc] initWithFrame:NSMakeRect(0,0,360,198)];
+    _portrait=[[NSImageView alloc] initWithFrame:NSMakeRect(0,33,137,133)];
     _portrait.imageScaling=NSImageScaleProportionallyUpOrDown;[view addSubview:_portrait];
-    [self label:@"名字" y:133 inView:view];
-    _name=[[NSTextField alloc] initWithFrame:NSMakeRect(185,134,166,23)];_name.delegate=self;
+    [self label:@"名字" y:166 inView:view];
+    _name=[[NSTextField alloc] initWithFrame:NSMakeRect(185,167,166,23)];_name.delegate=self;
     [_name setAccessibilityLabel:@"名字"];_name.stringValue=editing?studio.role[@"name"]:@"";[view addSubview:_name];
-    _shape=[self picker:@"shapes" title:@"体型" y:98 inView:view];[_shape selectItemAtIndex:[studio.role[@"shape"] integerValue]];
-    _pattern=[self picker:@"patterns" title:@"花纹" y:65 inView:view];[_pattern selectItemAtIndex:[studio.role[@"pattern"] integerValue]];
+    _build=[self picker:@"builds" title:@"体型" y:98 inView:view];[_build selectItemAtIndex:[studio.role[@"build"] integerValue]];
+    _shape=[self picker:@"shapes" title:@"毛型" y:131 inView:view];[_shape selectItemAtIndex:[studio.role[@"shape"] integerValue]];
+    _pattern=[self picker:@"patterns" title:@"花色" y:65 inView:view];[_pattern selectItemAtIndex:[studio.role[@"pattern"] integerValue]];
     _eyes=[self picker:@"eyes" title:@"瞳色" y:32 inView:view];[_eyes selectItemAtIndex:[studio.role[@"eyes"] integerValue]];
     _feedback=[NSTextField labelWithString:@""];_feedback.frame=NSMakeRect(140,3,213,22);_feedback.textColor=NSColor.systemRedColor;[view addSubview:_feedback];
     _dialog.icon=[art portraitForRole:studio.role size:64];_dialog.accessoryView=view;_dialog.window.initialFirstResponder=_name;[self preview:nil];[self validate];

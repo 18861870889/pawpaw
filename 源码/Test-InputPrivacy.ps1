@@ -41,6 +41,14 @@ try {
     $pet = $constructor.Invoke([object[]]@([string]$settingsPath))
     $config = $formType.GetField('settings', $instance).GetValue($pet)
     Assert-True ($config.Cat.Id -eq 'ragdoll' -and $config.Transparency -eq 35) 'Upgrades must load the selected role and opacity'
+    $chooseBuild=$formType.GetMethod('SetBuild',$instance)
+    $chooseRole=$formType.GetMethod('SelectCat',$instance)
+    $null=$chooseBuild.Invoke($pet,[object[]]@([int]3))
+    $null=$chooseRole.Invoke($pet,[object[]]@($config.Roles[7]))
+    $null=$chooseBuild.Invoke($pet,[object[]]@([int]2))
+    $saved=$config.GetType().GetMethod('Load').Invoke($null,[object[]]@([string]$settingsPath))
+    Assert-True ($saved.Cat.Id -eq 'black-cat' -and $saved.Cat.BuildIndex -eq 2 -and $saved.Roles[1].BuildIndex -eq 3 -and $saved.Transparency -eq 35 -and $saved.ScaleIndex -eq 1) 'Builds must round-trip independently for each role and preserve desktop settings'
+    $null=$chooseRole.Invoke($pet,[object[]]@($config.Roles[1]))
     $retry = $formType.GetField('retryInputAt', $instance)
     $retry.SetValue($pet, [double]10)
     $formType.GetField('pause', $instance).GetValue($pet).PerformClick()

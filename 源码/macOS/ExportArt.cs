@@ -5,6 +5,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -51,35 +52,91 @@ namespace KeyboardCat
                 finally { canvas.UnlockBits(pixels); }
                 return x1<x0?Rectangle.Empty:Rectangle.FromLTRB(x0,y0,x1+1,y1+1);
             }
-            public void Put(string name,Action<Graphics> paint,int square=0)
+            readonly Dictionary<int,int[]> pigmentByOffset=new Dictionary<int,int[]>();
+            void Draw(Action<Graphics> paint)
             {
                 GraphicsState state=drawing.Save();
-                Setup(drawing); drawing.Clear(Color.Transparent); drawing.ScaleTransform(Retina,Retina);
-                paint(drawing); drawing.Restore(state);
-                Rectangle b=square>0?new Rectangle(0,0,square,square):Bounds();
-                if (b.IsEmpty) return;
-                using (Bitmap cut=canvas.Clone(b,PixelFormat.Format32bppPArgb))
-                using (MemoryStream stream=new MemoryStream())
-                using (SHA256 sha=SHA256.Create())
-                {
-                    cut.Save(stream,ImageFormat.Png);
-                    byte[] data=stream.ToArray();
+                Setup(drawing);drawing.Clear(Color.Transparent);drawing.ScaleTransform(Retina,Retina);
+                paint(drawing);drawing.Restore(state);
+            }
+            int WriteUnique(byte[] data)
+            {
+                using(SHA256 sha=SHA256.Create()) {
                     string digest=Convert.ToBase64String(sha.ComputeHash(data));
                     int start;
-                    if (!offsets.TryGetValue(digest,out start))
-                    {
+                    if(!offsets.TryGetValue(digest,out start)) {
                         start=checked((int)output.Position);
-                        output.Write(data,0,data.Length); offsets.Add(digest,start);
+                        output.Write(data,0,data.Length);offsets.Add(digest,start);
                     }
-                    Sprites.Add(name,new[]{start,data.Length,b.X,b.Y,b.Width,b.Height});
+                    return start;
+                }
+            }
+            int[] Store(Bitmap cut,Rectangle b)
+            {
+                using(MemoryStream stream=new MemoryStream()) {
+                    cut.Save(stream,ImageFormat.Png);byte[] data=stream.ToArray();
+                    return new[]{WriteUnique(data),data.Length,b.X,b.Y,b.Width,b.Height};
+                }
+            }
+            public void Put(string name,Action<Graphics> paint,int square=0)
+            {
+                Draw(paint);
+                Rectangle b=square>0?new Rectangle(0,0,square,square):Bounds();
+                if(b.IsEmpty) return;
+                using(Bitmap cut=canvas.Clone(b,PixelFormat.Format32bppPArgb)) Sprites.Add(name,Store(cut,b));
+            }
+            // A second pass changes only the red channel of fur. The premultiplied difference is the
+            // amount of pigment visible through cuffs, props and antialiasing at each pixel.
+            unsafe static byte[] Pigment(Bitmap neutral,Bitmap probe)
+            {
+                Rectangle rect=new Rectangle(0,0,neutral.Width,neutral.Height);
+                BitmapData src=neutral.LockBits(rect,ImageLockMode.ReadOnly,PixelFormat.Format32bppPArgb);
+                BitmapData dye=probe.LockBits(rect,ImageLockMode.ReadOnly,PixelFormat.Format32bppPArgb);
+                byte[] weights=new byte[rect.Width*rect.Height];
+                bool any=false;
+                try {
+                    for(int y=0;y<rect.Height;y++) {
+                        byte* n=(byte*)src.Scan0+y*src.Stride;
+                        byte* p=(byte*)dye.Scan0+y*dye.Stride;
+                        int previous=0;
+                        for(int x=0;x<rect.Width;x++,n+=4,p+=4) {
+                            int amount=(Math.Max(0,n[2]-p[2])+1)/2;
+                            weights[y*rect.Width+x]=unchecked((byte)(amount-previous));
+                            previous=amount;any|=amount!=0;
+                        }
+                    }
+                } finally {neutral.UnlockBits(src);probe.UnlockBits(dye);}
+                if(!any) return null;
+                using(MemoryStream output=new MemoryStream()) {
+                    using(DeflateStream zip=new DeflateStream(output,CompressionLevel.Optimal,true))
+                        zip.Write(weights,0,weights.Length);
+                    return output.ToArray();
+                }
+            }
+            public void PutFur(string name,Cat cat,Action<Graphics,Cat> paint)
+            {
+                Draw(g=>paint(g,cat));Rectangle b=Bounds();
+                if(b.IsEmpty) return;
+                using(Bitmap neutral=canvas.Clone(b,PixelFormat.Format32bppPArgb)) {
+                    int[] entry=Store(neutral,b),mask;
+                    if(!pigmentByOffset.TryGetValue(entry[0],out mask)) {
+                        Draw(g=>paint(g,cat.PigmentProbe()));
+                        using(Bitmap probe=canvas.Clone(b,PixelFormat.Format32bppPArgb)) {
+                            byte[] pigment=Pigment(neutral,probe);
+                            mask=pigment==null?null:new[]{WriteUnique(pigment),pigment.Length};
+                        }
+                        pigmentByOffset.Add(entry[0],mask);
+                    }
+                    Sprites.Add(name,mask==null?entry:new[]{entry[0],entry[1],b.X,b.Y,b.Width,b.Height,mask[0],mask[1]});
                 }
             }
             public void Save()
             {
-                var catalog=new { roles=Cat.All.Select(c=>new {id=c.Id,name=c.Name,shape=c.ShapeIndex,pattern=c.Pattern,eyes=c.Eyes}).ToArray(),
-                    shapes=Cat.Shapes,patterns=Cat.Patterns,eyes=Cat.EyeNames,clothes=Outfit.Garments.Select(Outfit.Name).ToArray(),
+                var catalog=new { roles=Cat.All.Select(c=>new {id=c.Id,name=c.Name,shape=c.ShapeIndex,pattern=c.Pattern,eyes=c.Eyes,build=c.BuildIndex}).ToArray(),
+                    builds=BodyBuild.All.Select(b=>new {name=b.Name,torsoWidth=b.TorsoWidth,torsoHeight=b.TorsoHeight,faceWidth=b.FaceWidth,faceHeight=b.FaceHeight}).ToArray(),
+                    dyes=Cat.Dyes,shapes=Cat.Shapes,patterns=Cat.Patterns,eyes=Cat.EyeNames,clothes=Outfit.Garments.Select(Outfit.Name).ToArray(),
                     hats=Outfit.Hats.Select(Outfit.Name).ToArray(),boards=BoardNames,mice=MouseNames };
-                var manifest=new { version=8,catalog=catalog,scale=Retina,steps=ReachSteps,fps=ClipFps,sprites=Sprites,clips=Clips,keys=Keys,keymap=Map,
+                var manifest=new { version=9,catalog=catalog,scale=Retina,steps=ReachSteps,fps=ClipFps,sprites=Sprites,clips=Clips,keys=Keys,keymap=Map,
                     tricks=WordTrick.All.Select(x=>new object[]{x.Word,x.Pinyin,x.Label,x.Duration,x.ShortLabel}).ToArray(),
                     idles=WordTrick.Idle.Select(x=>new object[]{x.Word,x.Duration}).ToArray() };
                 JavaScriptSerializer json=new JavaScriptSerializer { MaxJsonLength=int.MaxValue };
@@ -150,6 +207,15 @@ namespace KeyboardCat
             DrawBody(g,cat,breath); if(cat.Longhair) DrawRuff(g,cat,breath);
             g.Restore(fur); DrawGarment(g,fit);
         }
+        static void GarmentAssets(Atlas a,string sprite,GarmentFit fit)
+        {
+            // The outfit and its clipping mask are shared by every coat and body build.
+            a.Put(sprite,g=>DrawGarment(g,fit));
+            a.Put(sprite+"/cut",g=>{
+                fit.ClipUnderlayer(g);
+                g.FillRectangle(Brushes.White,60,65,190,148);
+            });
+        }
         static void TailLayer(Graphics g,Cat cat,float amount)
         {
             GraphicsState saved=g.Save();
@@ -167,6 +233,7 @@ namespace KeyboardCat
                 for(int left=-3;left<=3;left++) for(int right=-3;right<=3;right++)
                     a.Put(prefix+"pattern/"+pattern+"/"+left+"_"+right,g=>DrawHeadBase(g,marked,left/3f,right/3f));
                 for(int i=-12;i<=12;i++) a.Put(prefix+"tail/"+pattern+"/"+(i+12),g=>TailLayer(g,marked,i));
+                a.Put(prefix+"muzzle/"+pattern,g=>DrawMuzzle(g,marked,marked.Longhair?97:102));
                 for(int eye=0;eye<Cat.EyeNames.Length;eye++) {
                     Cat look=new Cat("","",cat.ShapeIndex,pattern,eye);
                     using(Bitmap portrait=Portrait(look,128))
@@ -184,7 +251,6 @@ namespace KeyboardCat
                 a.Put(eyePrefix+"blink",g=>DrawGaze(g,look,0,0,0,0));
                 a.Put(eyePrefix+"smile",g=>DrawGaze(g,look,0,0,0,1));
             }
-            a.Put(prefix+"muzzle",g=>DrawMuzzle(g,cat,cat.Longhair?97:102));
             foreach(Headwear hat in Outfit.Hats)
                 if(hat!=Headwear.Bare) a.Put(prefix+"hat/"+(int)hat,g=>DrawHeadwear(g,cat,hat));
         }
@@ -192,21 +258,21 @@ namespace KeyboardCat
         {
             PointF left=new PointF(132,169),right=new PointF(176,171);
             GarmentFit rest=new GarmentFit(cat,garment,0,left,right);
-            a.Put(prefix+"body",g=>Torso(g,cat,rest,0));
-            for(int i=1;i<=10;i++) a.Put(prefix+"privacy/"+i,g=>DrawPrivacyArms(g,cat,garment,i*.1f));
+            if(garment!=Garment.Plain) GarmentAssets(a,prefix+"body",rest);
+            for(int i=1;i<=10;i++) a.PutFur(prefix+"privacy/"+i,cat,(g,fur)=>DrawPrivacyArms(g,fur,garment,i*.1f));
             for(int hand=0;hand<2;hand++)
             {
                 bool isLeft=hand==0;
                 PointF neutral=isLeft?left:right;
                 string arm=prefix+"arm/"+hand+"/";
-                a.Put(arm+"rest",g=>DrawArm(g,cat,isLeft,neutral,rest,0,0));
+                a.PutFur(arm+"rest",cat,(g,fur)=>DrawArm(g,fur,isLeft,neutral,rest,0,0));
                 Action<string,PointF> addReach=(target,contact)=>{
                     PointF goal=cat.ToFigure(contact);
                     for(int step=1;step<=ReachSteps;step++)
                     {
                         PointF paw=Motion.Mix(neutral,goal,step/(float)ReachSteps);
                         GarmentFit fit=new GarmentFit(cat,garment,0,isLeft?paw:left,isLeft?right:paw);
-                        a.Put(arm+target+"/"+step,g=>DrawArm(g,cat,isLeft,paw,fit,0,0));
+                        a.PutFur(arm+target+"/"+step,cat,(g,fur)=>DrawArm(g,fur,isLeft,paw,fit,0,0));
                     }
                 };
                 for(int target=0;target<Keyboard.Caps.Count;target++) {
@@ -254,35 +320,31 @@ namespace KeyboardCat
                     float rasterBreath;
                     GarmentFit torso=fit.AtlasTorso(out posture,out rasterBreath);
                     string sprite=prefix+"posture/"+posture;
-                    if(!a.Sprites.ContainsKey(sprite)) a.Put(sprite,g=>Torso(g,cat,torso,rasterBreath));
+                    if(!a.Sprites.ContainsKey(sprite)) GarmentAssets(a,sprite,torso);
                 }
                 string frame=clip+"/"+i;
-                a.Put(frame+"/back",g=>{
-                    GraphicsState transform=g.Save();
-                    FigureSpace(g,cat); p.MoveBody(g);
-                    float[] root;
-                    using(Matrix matrix=g.Transform) root=matrix.Elements;
-                    g.Restore(transform);
-                    Footwork(g,cat,p);
-                    if(!p.InFront(1)) DrawArm(g,cat,true,l,fit,p.LeftTurn,p.LeftPads);
-                    if(!p.InFront(2)) DrawArm(g,cat,false,r,fit,p.RightTurn,p.RightPads);
+                a.PutFur(frame+"/back",cat,(g,fur)=>{
+                    Footwork(g,fur,p);
+                    if(!p.InFront(1)) DrawArm(g,fur,true,l,fit,p.LeftTurn,p.LeftPads);
+                    if(!p.InFront(2)) DrawArm(g,fur,false,r,fit,p.RightTurn,p.RightPads);
                     if(p.Kind==TrickKind.Love) Heart(g,152,159+p.Beat,1.03f+.07f*p.Beat,0,p.Weight);
-                    FigureSpace(g,cat);p.MoveBody(g);
-                    g.TranslateTransform(Cat.HeadX+p.HeadX,Cat.HeadY+Cat.HeadDrop+breath+p.HeadY);
-                    g.RotateTransform(p.HeadTurn); g.ScaleTransform(Cat.HeadWidth,Cat.HeadHeight);
-                    g.TranslateTransform(-Cat.HeadX,-Cat.HeadY);
-                    using(Matrix matrix=g.Transform)
-                    {
-                        float[] m=matrix.Elements;
-                        heads.Add(new[]{m[0]/Retina,m[1]/Retina,m[2]/Retina,m[3]/Retina,m[4]/Retina,m[5]/Retina,
-                            1-p.Squint,p.Smile,
-                            root[0]/Retina,root[1]/Retina,root[2]/Retina,root[3]/Retina,root[4]/Retina,root[5]/Retina,
-                            p.Tail,p.TailTurn,p.Weight,p.EarLeft,p.EarRight,p.Still,p.Focus,p.GazeX,p.GazeY,p.Air,(float)posture});
-                    }
                 });
-                a.Put(frame+"/front",g=>{
+                using(Matrix root=new Matrix()) {
+                    root.Translate(Cat.SeatX,Cat.SeatY);root.Scale(cat.WidthScale,cat.HeightScale);
+                    root.Translate(-Cat.SeatX,-Cat.SeatY);
+                    root.Translate(Cat.SeatX+p.BodyX,Cat.SeatY+p.BodyY);
+                    root.Rotate(p.BodyTurn);root.Scale(1+p.Wide,1+p.Tall);root.Translate(-Cat.SeatX,-Cat.SeatY);
+                    float[] body=root.Elements;
+                    root.Translate(Cat.HeadX+p.HeadX,Cat.HeadY+Cat.HeadDrop+breath+p.HeadY);
+                    root.Rotate(p.HeadTurn);root.Scale(Cat.HeadWidth,Cat.HeadHeight);root.Translate(-Cat.HeadX,-Cat.HeadY);
+                    float[] m=root.Elements;
+                    heads.Add(new[]{m[0],m[1],m[2],m[3],m[4],m[5],1-p.Squint,p.Smile,
+                        body[0],body[1],body[2],body[3],body[4],body[5],
+                        p.Tail,p.TailTurn,p.Weight,p.EarLeft,p.EarRight,p.Still,p.Focus,p.GazeX,p.GazeY,p.Air,(float)posture});
+                }
+                a.PutFur(frame+"/front",cat,(g,fur)=>{
                     FigureSpace(g,cat); p.MoveBody(g);
-                    ActionForeground(g,cat,p,l,r,fit);
+                    ActionForeground(g,fur,p,l,r,fit);
                 });
             }
             a.Clips.Add(clip,heads);

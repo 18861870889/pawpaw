@@ -95,6 +95,11 @@ namespace KeyboardCat
             }
         }
 
+        static void ScaleAround(Graphics g,float x,float y,float width,float height)
+        {
+            g.TranslateTransform(x,y);g.ScaleTransform(width,height);g.TranslateTransform(-x,-y);
+        }
+
         static GraphicsState FigureSpace(Graphics g, Cat cat)
         {
             GraphicsState saved = g.Save();
@@ -147,10 +152,12 @@ namespace KeyboardCat
             using (Matrix torso=TorsoMatrix())
             {
                 GraphicsState tail=g.Save();
+                g.TranslateTransform(Math.Min(0,cat.Build.TorsoWidth-1)*27,(cat.Build.TorsoHeight-1)*-17);
                 TurnTail(g,gesture.TailTurn);g.MultiplyTransform(torso);
                 DrawTail(g,cat,gesture.TailBend);
                 g.Restore(tail);
 
+                ScaleAround(g,Cat.SeatX,Cat.SeatY,cat.Build.TorsoWidth,cat.Build.TorsoHeight);
                 GraphicsState fur=g.Save();
                 if (fit.Kind!=Garment.Plain) fit.ClipUnderlayer(g);
                 g.MultiplyTransform(torso);
@@ -158,7 +165,10 @@ namespace KeyboardCat
                 if (cat.Longhair) DrawRuff(g,cat,breath);
                 g.Restore(fur);
             }
-            DrawGarment(g,fit);Footwork(g,cat,trick);
+            DrawGarment(g,fit);
+            g.Restore(figure);
+            figure=FigureSpace(g,cat);trick.MoveBody(g);
+            Footwork(g,cat,trick);
             g.Restore(figure);
 
             GraphicsState screen = g.Save();
@@ -185,6 +195,7 @@ namespace KeyboardCat
             g.RotateTransform(lookX*lean+trick.HeadTurn);
             g.ScaleTransform(Cat.HeadWidth,Cat.HeadHeight);
             g.TranslateTransform(-Cat.HeadX,-Cat.HeadY);
+            ScaleAround(g,Cat.HeadX,cat.EyeLine,cat.Build.FaceWidth,cat.Build.FaceHeight);
             float smile=trick.Smile;
             float blink=Motion.Mix(Motion.Blink(now),1,trick.Still);
             DrawHead(g,cat,lookX,lookY,blink*(1-trick.Squint)*(1-cover)*(1-.27f*temper),smile,gesture.EarLeft,gesture.EarRight);
